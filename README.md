@@ -37,6 +37,23 @@ The browser tests run against the production build, with desktop and phone viewp
 npm run preview -- --port 4173 --strictPort
 ```
 
-`npm run build` writes deployable static assets to `dist/`. A static website host can serve those files over HTTPS. Publishing a Codex environment preserves the development setup; it does not publish the app as a public website. No website deployment has been configured.
+`npm run build` writes deployable static assets to `dist/`. A static website host can serve those files over HTTPS. Publishing a Codex environment preserves the development setup; it does not publish the app as a public website.
+
+## Website review and GitHub Pages
+
+The [current design screenshot](screenshots/wine-journal.png) can be viewed directly in GitHub. It shows the actual app with an empty collection.
+
+The `docs/` folder contains the compiled website for GitHub Pages, including all fonts. Rebuild it whenever application source changes:
+
+```sh
+npm run build:pages
+npm run preview:pages -- --port 4174 --strictPort
+```
+
+The local Pages build is served under `/Wine-Purchase-App/`, matching the repository's GitHub Pages path. Commit the updated `docs/` files with application changes. The production bundle contains no wine records or credentials; records are created only in a visitor's browser.
+
+To activate hosting, GitHub Pages must be enabled in this repository's **Settings → Pages**, using **Deploy from a branch**, branch **main**, folder **/docs**. Website publishing has not yet been confirmed. The expected website address after GitHub completes deployment is `https://sta2014.github.io/Wine-Purchase-App/`; verify it before describing the site as live.
+
+The cloud environment needs access to `api.github.com` to configure GitHub Pages and `sta2014.github.io` to verify the deployed app. Git read/write access alone does not establish API access. Required domain additions have been saved in the environment draft; they must be applied through environment settings before those connections will work.
 
 No live process survives an environment snapshot; restart the dev server in each new task. All dependency versions are recorded in `package-lock.json`.

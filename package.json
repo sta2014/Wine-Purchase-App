@@ -9,7 +9,9 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
+    "build:pages": "vite build --base=/Wine-Purchase-App/ --outDir=docs",
     "preview": "vite preview --host 0.0.0.0",
+    "preview:pages": "vite preview --host 0.0.0.0 --outDir docs --base=/Wine-Purchase-App/",
     "test": "node --test tests/model.test.js",
     "test:e2e": "playwright test"
   },
