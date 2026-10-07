@@ -359,3 +359,23 @@ test('verified manual review requires a reference and no provider access remains
   expect(JSON.parse(await readEngineRaw(page)).reviews).toHaveLength(0); await form.getByRole('checkbox').uncheck(); await form.getByRole('button',{name:'Save review and re-rank'}).click(); await expect(dialog).not.toBeVisible();
   await page.getByLabel('With independently verified reviews',{exact:true}).check(); await expect(page.locator('#engine-results')).toContainText('No wines meet these filters');
 });
+
+
+test('one bad inventory price no longer blocks import, retains critic alignment and exports a persistent report',async({page})=>{
+  await importRows(page,'flickinger',[{...wine,external_id:'old-offer',price:80}]);
+  await importRows(page,'flickinger',[{...wine,external_id:'invalid',price:0,WA:100},{...wine,external_id:'valid',price:90,WA:95}],true);
+  await expect(page.locator('#engine-notice')).toContainText('1 rows imported');await expect(page.locator('#engine-notice')).toContainText('1 rows with unusable prices set aside');await expect(page.locator('#engine-results tbody tr')).toHaveCount(2);
+  let state=JSON.parse(await readEngineRaw(page));expect(state.listings.some(l=>l.externalId==='invalid')).toBe(false);expect(state.listings.find(l=>l.externalId==='old-offer').isAvailable).toBe(true);expect(state.reviews.map(r=>r.score)).toEqual([95]);
+  await page.getByRole('button',{name:'Review excluded price rows',exact:true}).click();const dialog=page.locator('#engine-dialog');await expect(dialog).toContainText('Price is outside');await expect(dialog).toContainText('existing stock was preserved');
+  const downloaded=page.waitForEvent('download');await dialog.getByRole('button',{name:'Download excluded rows'}).click();const report=JSON.parse((await readFile(await (await downloaded).path())).toString());expect(report.rows[0].price).toBe(0);expect(report.rows[0].row.WA).toBe(100);
+  await dialog.getByRole('button',{name:'Close',exact:true}).click();await page.reload();await expect(page.getByRole('button',{name:'Review excluded price rows'})).toBeVisible();state=JSON.parse(await readEngineRaw(page));expect(state.runs.at(-1).rejectedPriceRows).toHaveLength(1);
+});
+
+
+test('Excel $400.00 imports normally and excluded prices identify the physical worksheet row',async({page})=>{
+  await page.getByRole('button',{name:'Import data',exact:true}).click();const dialog=page.locator('#engine-dialog');
+  await dialog.getByLabel('Excel, CSV or JSON file').setInputFiles('tests/fixtures/price-diagnostics.xlsx');await dialog.getByRole('button',{name:'Validate and import'}).click();await dialog.getByRole('button',{name:'Confirm Excel import'}).click();await expect(dialog).not.toBeVisible();
+  await expect(page.locator('#engine-results')).toContainText('$400.00');await expect(page.locator('#engine-results tbody tr')).toHaveCount(1);
+  await page.getByRole('button',{name:'Review excluded price rows',exact:true}).click();await expect(dialog.locator('tbody tr td').first()).toHaveText('4');await expect(dialog).toContainText('Imported price: 0');
+  const state=JSON.parse(await readEngineRaw(page));expect(state.listings[0].price).toBe(400);expect(state.reviews.map(r=>r.score)).toEqual([96]);
+});

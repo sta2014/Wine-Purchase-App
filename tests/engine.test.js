@@ -246,3 +246,31 @@ test('zero identity fields and contradictory producer or wooden-case titles cann
   const wrong = identifyWine({ name: 'Château Margaux 2019 750ml', producer: 'Different estate', cuvee: 'Reserve' });
   assert.equal(matchWine(wrong, wrong).automatic, false);
 });
+
+
+test('inventory price quarantine keeps valid offers and exact critic-row alignment without inventing prices', () => {
+  const rows=[row({external_id:'bad-first',price:0,WA:100}),row({external_id:'good-a',price:80,WA:94}),row({external_id:'bad-middle',price:'POA',WA:99}),row({external_id:'good-b',cuvee:'Grand Vin',price:120,WA:97}),...['',null,-5,'not-a-price',1e9].map((price,i)=>row({external_id:`bad-${i}`,price}))];
+  const state=ingestDataset(initialState(),'flickinger',{rows,skipInvalidPrices:true,completeSnapshot:true},at);
+  assert.equal(state.listings.length,2);assert.deepEqual(state.listings.map(l=>l.price),[80,120]);assert.deepEqual(state.reviews.map(r=>r.score),[94,97]);
+  assert.equal(state.reviews[0].wineId,state.listings[0].wineId);assert.equal(state.reviews[1].wineId,state.listings[1].wineId);
+  const run=state.runs.at(-1);assert.equal(run.count,2);assert.equal(run.inputCount,9);assert.equal(run.rejectedPriceRows.length,7);assert.equal(run.rejectedPriceRows[0].price,0);assert.equal(run.rejectedPriceRows[1].rowNumber,3);assert.equal(run.completeSnapshot,false);assert.equal(run.snapshotDowngraded,true);
+  assert.equal(validateBackup(JSON.stringify(state)).runs.at(-1).rejectedPriceRows.length,7);
+});
+test('price quarantine prevents complete-snapshot retirement and changes nothing when all rows are invalid',()=>{
+  const first=ingest(initialState(),'flickinger',[row({external_id:'keep'}),row({external_id:'update'})]);
+  const result=ingestDataset(first,'flickinger',{rows:[row({external_id:'update',price:70}),row({external_id:'keep',price:0})],skipInvalidPrices:true,completeSnapshot:true},at);
+  assert.equal(result.listings.find(l=>l.externalId==='keep').isAvailable,true);assert.equal(result.listings.find(l=>l.externalId==='keep').price,80);assert.equal(result.listings.find(l=>l.externalId==='update').price,70);
+  const before=JSON.stringify(first);assert.throws(()=>ingestDataset(first,'flickinger',{rows:[row({price:0})],skipInvalidPrices:true,completeSnapshot:true},at),/No rows have usable prices/);assert.equal(JSON.stringify(first),before);
+});
+test('quarantine is opt-in and limited to inventory price failures; other errors remain atomic',()=>{
+  assert.throws(()=>ingestDataset(initialState(),'flickinger',{rows:[row(),row({price:0})]},at),/Row 2/);
+  assert.throws(()=>ingestDataset(initialState(),'market-import',{rows:[row({price:0})],skipInvalidPrices:true},at),/Row 1/);
+  assert.throws(()=>ingestDataset(initialState(),'flickinger',{rows:[row(),row({price:0}),row({price:80,available_quantity:-1})],skipInvalidPrices:true},at),/Row 3/);
+});
+
+
+test('a displayed $400.00 price is valid; price diagnostics expose the actual read cell and worksheet row',()=>{
+  const accepted=ingestDataset(initialState(),'flickinger',parseDataset(JSON.stringify({rows:[row({price:'$400.00',import_row:2429})],skipInvalidPrices:true})),at);
+  assert.equal(accepted.listings[0].price,400);assert.equal(accepted.runs[0].rejectedPriceRows.length,0);
+  assert.throws(()=>ingestDataset(initialState(),'flickinger',{rows:[row({price:0,import_row:2430})]},at),/Row 2430: Price is outside its valid range\. Imported price: 0/);
+});

@@ -37,7 +37,7 @@ export function parseDataset(text) {
     const value = JSON.parse(text);
     const rows = Array.isArray(value) ? value : value.rows;
     if (!Array.isArray(rows)) throw new Error('JSON needs an array or an object containing rows.');
-    return { rows, completeSnapshot: !Array.isArray(value) && value.completeSnapshot === true };
+    return { rows, completeSnapshot: !Array.isArray(value) && value.completeSnapshot === true, ...(!Array.isArray(value) && value.skipInvalidPrices === true ? {skipInvalidPrices:true} : {}) };
   }
   return { rows: parseCSV(text), completeSnapshot: false };
 }
@@ -73,7 +73,10 @@ export function normalizeRow(raw, kind, source, now) {
     if (!Intl.supportedValuesOf('currency').includes(currency)) throw new Error('Invalid currency.');
     const basis = r.price_basis || 'package';
     if (!['package', 'bottle'].includes(basis)) throw new Error('price_basis must be package or bottle.');
-    const price = number(r.price ?? r.unit_price, 'Price', { min: .01, max: 1e8 });
+    const rawPrice = r.price ?? r.unit_price;
+    let price;
+    try { price = number(rawPrice, 'Price', { min: .01, max: 1e8 }); }
+    catch (error) { throw new Error(`${error.message} Imported price: ${rawPrice == null || rawPrice === '' ? 'blank' : JSON.stringify(rawPrice)}.`); }
     const packagePrice = basis === 'bottle' || (r.price == null && r.unit_price != null) ? price * wine.packCount : price;
     const unitPrice = packagePrice / wine.packCount;
     const availableQuantity = number(r.available_quantity, 'Available packages', { min: 0, max: 1e6, integer: true, optional: true });
@@ -108,7 +111,20 @@ export function ingestDataset(state, sourceId, dataset, now = new Date().toISOSt
   if (!Array.isArray(rows) || rows.length > 10000) throw new Error('A dataset may contain at most 10,000 rows.');
   if (!rows.length && !dataset.completeSnapshot) throw new Error('Empty import requires explicit completeSnapshot: true.');
   // Validate every row before any updates, including snapshot removal.
-  let normalized = rows.map((r, i) => { try { return normalizeRow(r, source.category, source, now); } catch (error) { throw new Error(`Row ${i + 1}: ${error.message}`); } });
+  const rejectedPriceRows = [], inputIndexes = [];
+  let normalized = [];
+  for (const [i, raw] of rows.entries()) {
+    const rowNumber = Number.isInteger(raw?.import_row) && raw.import_row > 0 ? raw.import_row : i + 1;
+    try { normalized.push(normalizeRow(raw, source.category, source, now)); inputIndexes.push(i); }
+    catch (error) {
+      if (source.category !== 'inventory' || dataset.skipInvalidPrices !== true || !/^Price(?: is| must|:)/.test(error.message)) throw new Error(`Row ${rowNumber}: ${error.message}`);
+      const fields = Object.fromEntries(Object.entries(raw).map(([k,v]) => [ALIASES[header(k)] ?? header(k), v]));
+      rejectedPriceRows.push({ rowNumber, rawTitle: String(fields.raw_title ?? ''), price: fields.price ?? fields.unit_price ?? null, reason: error.message, row: structuredClone(raw) });
+    }
+  }
+  if (rows.length && !normalized.length) throw new Error(`No rows have usable prices. Check the price-column mapping and package price basis; nothing was imported. Row ${rejectedPriceRows[0]?.rowNumber}: ${rejectedPriceRows[0]?.reason}`);
+  // A file with excluded rows cannot establish which old offers disappeared.
+  const completeSnapshot = Boolean(dataset.completeSnapshot) && !rejectedPriceRows.length;
   if (source.category === 'inventory') normalized = normalized.map(item => {
     const correction=state.identityCorrections?.[item.wineId];
     if (!correction) return item;
@@ -142,24 +158,24 @@ export function ingestDataset(state, sourceId, dataset, now = new Date().toISOSt
     else next[source.category === 'market' ? 'market' : 'vintages'].push(record);
   }
   let criticImportedCount = 0, criticWarningCount = 0;
-  if (source.category === 'inventory') for (let i = 0; i < rows.length; i++) {
-    const extracted = retailerScores(rows[i]), item = normalized[i];
+  if (source.category === 'inventory') for (let i = 0; i < normalized.length; i++) {
+    const raw = rows[inputIndexes[i]], extracted = retailerScores(raw), item = normalized[i];
     const listing = next.listings.find(l => l.id === item.id);
     listing.reportedRatings = extracted.rawRatings;
     listing.criticWarnings = extracted.warnings;
     criticWarningCount += extracted.warnings.length;
     for (const review of extracted.scores) {
-      const record = { ...item, ...review, id: crypto.randomUUID(), runId, kind: 'critic', publication: review.critic, reviewer: '', reviewDate: null, sourceReference: String(rows[i].source_reference ?? dataset.sourceReference ?? 'Inventory export').slice(0, 500), verification: 'retailer_reported', verified: false, formatSpecific: false, drinkFrom: null, drinkTo: null, notes: 'Reported by the inventory retailer; not independently verified.', warnings: [...item.warnings], sourceURL: item.sourceURL };
+      const record = { ...item, ...review, id: crypto.randomUUID(), runId, kind: 'critic', publication: review.critic, reviewer: '', reviewDate: null, sourceReference: String(raw.source_reference ?? dataset.sourceReference ?? 'Inventory export').slice(0, 500), verification: 'retailer_reported', verified: false, formatSpecific: false, drinkFrom: null, drinkTo: null, notes: 'Reported by the inventory retailer; not independently verified.', warnings: [...item.warnings], sourceURL: item.sourceURL };
       if (upsertReview(next, record, reviewIndex)) criticImportedCount++;
     }
   }
-  if (source.category === 'inventory' && dataset.completeSnapshot) {
+  if (source.category === 'inventory' && completeSnapshot) {
     for (const listing of next.listings) if (listing.sourceId === source.id && !ids.has(listing.id) && listing.isAvailable) {
       listing.isAvailable = false; listing.availableQuantity = 0; listing.observedAt = now;
       next.history.push({ ...listing, event: 'absent_from_complete_snapshot', retrievedAt: now });
     }
   }
-  next.runs.push({ id: runId, sourceId, category: source.category, at: now, count: rows.length, criticImportedCount, criticWarningCount, inferredOfferCount: normalized.filter(r => r.listingIdentity === 'inferred-offer').length, vintageWarningCount: normalized.filter(r => r.wine?.vintageKind === 'unknown' && r.wine.rawVintage).length, completeSnapshot: Boolean(dataset.completeSnapshot), status: 'success' });
+  next.runs.push({ id: runId, sourceId, category: source.category, at: now, count: normalized.length, inputCount: rows.length, rejectedPriceRows, snapshotDowngraded: Boolean(dataset.completeSnapshot) && !completeSnapshot, criticImportedCount, criticWarningCount, inferredOfferCount: normalized.filter(r => r.listingIdentity === 'inferred-offer').length, vintageWarningCount: normalized.filter(r => r.wine?.vintageKind === 'unknown' && r.wine.rawVintage).length, completeSnapshot, status: 'success' });
   const saved = next.sources.find(s => s.id === sourceId);
   saved.lastChecked = now; saved.lastSuccess = now; saved.error = ''; saved.failures = 0;
   saved.nextDue = new Date(Date.parse(now) + saved.refreshHours * 3600000).toISOString();

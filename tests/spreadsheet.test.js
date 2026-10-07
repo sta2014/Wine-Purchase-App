@@ -50,3 +50,10 @@ test('spreadsheet mappings reject duplicates and preserve text, defaults and dat
   assert.throws(() => mapSpreadsheet(data,3,[]));
   assert.throws(() => checkWorkbook(new ArrayBuffer(12)), /xlsx/);
 });
+
+
+test('Excel quarantine reports physical worksheet rows after blank lines',()=>{
+  const data=[['Export title'],['Wine','Price'],['Example Estate Reserve 2019',80],[],['Example Estate Reserve 2020',0]];
+  const rows=mapSpreadsheet(data,1,['raw_title','price']);assert.deepEqual(rows.map(r=>r.import_row),[3,5]);
+  const state=ingestDataset(initialState(),'flickinger',{rows,skipInvalidPrices:true});assert.equal(state.listings.length,1);assert.equal(state.runs.at(-1).rejectedPriceRows[0].rowNumber,5);
+});

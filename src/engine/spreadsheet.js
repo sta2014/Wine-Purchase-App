@@ -27,10 +27,10 @@ export function mapSpreadsheet(data, headerRow, mapping, defaults = {}) {
   if (!Number.isInteger(headerRow) || headerRow < 0 || headerRow >= data.length) throw new Error('Choose a valid header row.');
   const fields = mapping.filter(Boolean);
   if (new Set(fields).size !== fields.length || fields.some(f => !IMPORT_FIELDS.includes(f))) throw new Error('Map each field once, or ignore duplicate columns.');
-  const rows = data.slice(headerRow + 1).filter(row => row.some(cell => cell != null && cell !== ''));
+  const rows = data.slice(headerRow + 1).map((row,index)=>({row,index})).filter(({row}) => row.some(cell => cell != null && cell !== ''));
   if (!rows.length || rows.length > 10000) throw new Error('Choose a sheet with 1–10,000 data rows.');
-  return rows.map((row, index) => {
-    const item = {};
+  return rows.map(({row, index}) => {
+    const item = { import_row: headerRow + index + 2 };
     mapping.forEach((field, col) => { if (field && row[col] != null && row[col] !== '') { const value = row[col]; if (value instanceof Date) item[field] = value.toISOString(); else if (['string', 'number', 'boolean'].includes(typeof value)) item[field] = value; else throw new Error(`Spreadsheet row ${headerRow + index + 2} contains an unsupported cell.`); } });
     const columnFormat = parsePackageFormat(item.format), titleFormat = parsePackageFormat(item.raw_title);
     for (const [key, value] of Object.entries(defaults)) {
