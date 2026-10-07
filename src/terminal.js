@@ -102,7 +102,7 @@ export function mountIntelligence() {
       if(!groups.has(key)) groups.set(key,[]); groups.get(key).push(r);
     }
     const charts=[...groups.values()];
-    $('engine-dialog-body').insertAdjacentHTML('afterbegin', `<p>Import the prepared chart JSON file to attach regional vintage ratings to your existing inventory. Ratings stay saved on this device and are included in your engine backup. Reimport an updated chart file to revise ratings while retaining earlier observations.</p><p>Matching requires the same year, compatible region/subregion, and any specified type, variety or appellation scope. NV and MV wines have no year-based rating. Unmatched wines stay unassessed. PDFs and screenshots must first be transcribed into an import file; this uploader accepts prepared JSON, CSV and Excel data.</p>${charts.length?`<div class="terminal-table-wrap"><table class="evidence-table"><thead><tr><th>Publication / chart</th><th>Coverage</th><th>Years</th><th>Saved assessments</th><th>Last imported</th></tr></thead><tbody>${charts.map(records=>{const r=records[0],years=records.map(x=>x.vintage);return `<tr><td>${esc(r.publication)}<small>${esc(r.chartName || 'Imported assessment')}</small></td><td>${esc(r.geography?.path.map(n=>n.name).join(' → ') || r.region)} · ${esc(r.type)}<small>${[r.style,...(r.allowedStyles || []),...(r.allowedAppellations || [])].filter(Boolean).map(esc).join(' · ')}</small></td><td>${Math.min(...years)}–${Math.max(...years)}</td><td>${records.length}</td><td>${time(records.map(x=>x.lastRetrievedAt || x.retrievedAt).sort().at(-1))}</td></tr>`;}).join('')}</tbody></table></div>`:'<p>No vintage charts imported yet.</p>'}`);
+    $('engine-dialog-body').insertAdjacentHTML('afterbegin', `<p><button class="button primary" id="load-provided-vintage-charts">Load Wine Spectator charts</button> <a href="${import.meta.env.BASE_URL}data/wine-spectator-vintage-charts.json" download="Wine-Spectator-Vintage-Charts.json">Download chart file</a></p><p>Load the 15 provided Wine Spectator charts directly into your saved inventory. No download is needed. Original ratings, chart coverage and source references remain inspectable.</p><p id="provided-vintage-chart-status" role="status"></p><p>Import the prepared chart JSON file to attach regional vintage ratings to your existing inventory. Ratings stay saved on this device and are included in your engine backup. Reimport an updated chart file to revise ratings while retaining earlier observations.</p><p>Matching requires the same year, compatible region/subregion, and any specified type, variety or appellation scope. NV and MV wines have no year-based rating. Unmatched wines stay unassessed. PDFs and screenshots must first be transcribed into an import file; this uploader accepts prepared JSON, CSV and Excel data.</p>${charts.length?`<div class="terminal-table-wrap"><table class="evidence-table"><thead><tr><th>Publication / chart</th><th>Coverage</th><th>Years</th><th>Saved assessments</th><th>Last imported</th></tr></thead><tbody>${charts.map(records=>{const r=records[0],years=records.map(x=>x.vintage);return `<tr><td>${esc(r.publication)}<small>${esc(r.chartName || 'Imported assessment')}</small></td><td>${esc(r.geography?.path.map(n=>n.name).join(' → ') || r.region)} · ${esc(r.type)}<small>${[r.style,...(r.allowedStyles || []),...(r.allowedAppellations || [])].filter(Boolean).map(esc).join(' · ')}</small></td><td>${Math.min(...years)}–${Math.max(...years)}</td><td>${records.length}</td><td>${time(records.map(x=>x.lastRetrievedAt || x.retrievedAt).sort().at(-1))}</td></tr>`;}).join('')}</tbody></table></div>`:'<p>No vintage charts imported yet.</p>'}`);
   };
   $('engine-import-report').onclick = () => {
     const run = getState().runs.filter(r=>r.rejectedPriceRows?.length).at(-1);
@@ -159,6 +159,21 @@ export function mountIntelligence() {
   document.addEventListener('click', async e => {
     const button = e.target.closest('button'); if (!button) return;
     try {
+      if(button.id==='load-provided-vintage-charts') {
+        if(busy) return;
+        busy=true;button.disabled=true;render();
+        const status=$('provided-vintage-chart-status');status.textContent='Loading and saving vintage charts…';
+        try {
+          if(!client.state.sources.some(s=>s.id==='vintage-import' && s.enabled)) throw new Error('Enable Curated vintage assessments in Sources before loading these charts.');
+          const response=await fetch(`${import.meta.env.BASE_URL}data/wine-spectator-vintage-charts.json`,{cache:'no-cache'});
+          if(!response.ok) throw new Error('The chart file could not be loaded. Please try again.');
+          const dataset=parseDataset(await response.text());
+          await act({type:'import',sourceId:'vintage-import',dataset});
+          $('engine-dialog').close();notify(`${dataset.rows.length} Wine Spectator vintage assessments saved. Your inventory has been re-ranked; previous chart observations are retained.`);
+        } catch(error) {status.textContent=error.message;}
+        finally {busy=false;button.disabled=false;render();}
+        return;
+      }
       if (button.id === 'engine-download-price-report') { const run=getState().runs.filter(r=>r.rejectedPriceRows?.length).at(-1); download('excluded-wine-price-rows.json', JSON.stringify({sourceId:run.sourceId,importedAt:run.at,rows:run.rejectedPriceRows}, null, 2)); }
       if(button.dataset.market) showMarket(button.dataset.market);
       if(button.dataset.marketDecision) {await act({type:'decision',wineId:button.dataset.wine,observationId:button.dataset.record,decision:button.dataset.marketDecision});showMarket(button.dataset.listing);}

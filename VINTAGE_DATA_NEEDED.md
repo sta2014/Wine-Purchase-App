@@ -1,6 +1,6 @@
 # Vintage chart collection and updates
 
-We can use stored professional vintage charts without a live feed. Fifteen Wine Spectator screenshot PDFs were supplied on October 7, 2026 and transcribed into a private import file containing 466 assessments. The app does not bundle these charts; import the prepared file on the device holding the inventory. Once supplied, prepare the data for the existing Vintage Intelligence importer, retain provenance, validate matching, and identify any unreadable or ambiguous entries before using them. Do not invent ratings or treat test fixtures as real chart data.
+We can use stored professional vintage charts without a live feed. Fifteen Wine Spectator screenshot PDFs were supplied on October 7, 2026 and transcribed into a private import file containing 466 assessments. The transcribed regional rating facts can be loaded directly with Vintage charts → Load Wine Spectator charts on the device holding the inventory. The original uploaded PDFs and inventory remain private. Once supplied, prepare the data for the existing Vintage Intelligence importer, retain provenance, validate matching, and identify any unreadable or ambiguous entries before using them. Do not invent ratings or treat test fixtures as real chart data.
 
 ## Supplied chart coverage
 
