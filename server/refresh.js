@@ -13,7 +13,7 @@ export class RefreshService {
         const now = this.clock();
         if ((category && s.category !== category) || !s.enabled || s.method !== 'json' || !s.accessApproved || !s.url || (!force && s.nextDue && Date.parse(s.nextDue) > +now)) continue;
         try {
-          const result = await this.adapter.fetch(s, this.env, now);
+          const result = await (s.category==='vintage' && this.adapter.fetchVintageInformation ? this.adapter.fetchVintageInformation(s,this.env,now) : this.adapter.fetch(s, this.env, now));
           let state = this.database.load();
           const current = state.sources.find(x => x.id === s.id);
           if (!current?.enabled || current.url !== s.url || current.method !== s.method || !current.accessApproved) { outcomes.push({ sourceId: s.id, status: 'Configuration changed; response discarded' }); continue; }

@@ -102,6 +102,10 @@ Research is user-triggered, limited to one new query per three seconds, deduplic
 
 Reimport your retailer export to retain labeled critic columns, then open **Professional critics** on a wine. Scores are marked retailer-reported until independently verified. Publication filters, verified-review filtering, manual evidence, persistent match/identity corrections, composite quality and decomposed ranking are available. Automatic external verification still requires a real approved feed and connected engine; no commercial publication is live by default. See [CRITIC_SCORING.md](CRITIC_SCORING.md) for providers, methodology, configuration and limitations.
 
+## Vintage Intelligence
+
+Open **Vintage Intelligence** on a wine to inspect regional/year/type context, source ratings and internal conversions, geography/fallback, confidence and its separate ranking contribution. Add a reference-bearing professional assessment there or import the extended vintage template. Appellation/tier/confidence filters combine with critic filters. Missing, NV and MV vintage data use neutral context rather than a zero/bad-vintage score. No live chart provider is enabled and no factual vintage ratings are bundled; documented imports or an approved feed are still needed. See [VINTAGE_INTELLIGENCE.md](VINTAGE_INTELLIGENCE.md) for hierarchy, providers, methodology, persistence, configuration and validation.
+
 ## Inventory price import diagnostics
 
 Large inventory imports run normalization in a browser worker and display 100 offers per page. Filtering and ranks cover the entire imported inventory, not just the visible page. Analyses are reused while filtering and refreshed after data changes or one minute. The Flickinger layout `Region Name / Vintage / Size / [blank wine-name header] / Price (USD) / Scores` is recognized automatically, with package-total USD pricing. Quantity stays unknown when the export supplies none. Exact inventory identity allows the retailer's own scores to be used as unverified reported evidence even when producer parsing is incomplete; external comparisons retain conservative matching requirements.

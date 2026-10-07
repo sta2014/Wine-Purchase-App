@@ -168,7 +168,7 @@ test('a newer unavailable quote suppresses the older available quote', () => {
 });
 test('missing critic uses disclosed neutral contribution without imputing a critic score; minimum filters exclude unknowns', () => {
   const state = inventory(), a = rankInventory(state, {}, now)[0];
-  assert.equal(a.score, 17.5); assert.equal(a.breakdown.find(b=>b.key==='quality').neutral, true); assert.equal(a.coverage, 0); assert.equal(a.quality, null); assert.equal(a.drinkNow, null);
+  assert.equal(a.score, 22.5); assert.equal(a.breakdown.find(b=>b.key==='quality').neutral, true); assert.equal(a.coverage, 0); assert.equal(a.quality, null); assert.equal(a.drinkNow, null);
   assert.equal(rankInventory(state, { minCritic: 90 }, now).length, 0);
   assert.equal(rankInventory(state, { minDiscount: 0 }, now).length, 0);
 });
@@ -181,7 +181,7 @@ test('critic score ranges use lower bound, scales normalize, and community score
 test('vintage evidence is specific to region, year and type, with no cross-region substitution', () => {
   let state = ingest(inventory(), 'vintage-import', [{ region: 'Burgundy', type: 'Red', vintage: 2019, score: 100 }]);
   assert.equal(rankInventory(state, {}, now)[0].vintage, null);
-  state = ingest(state, 'vintage-import', [{ region: 'Example Bordeaux', type: 'Red', vintage: 2019, score: 92 }]);
+  state = ingest(state, 'vintage-import', [{ country:'France', publication:'Wine Advocate', source_reference:'Synthetic test chart, not real ratings', region: 'Example Bordeaux', type: 'Red', vintage: 2019, score: 92 }]);
   assert.equal(rankInventory(state, {}, now)[0].vintage, 92);
 });
 test('disabled sources stop contributing while retained observations and journal storage are untouched', () => {
@@ -227,7 +227,7 @@ test('sparse enrichment preserves inventory metadata and conflicting wine types 
 test('low-confidence reviews and vintage assessments do not silently inflate rankings', () => {
   let state = inventory();
   state = ingest(state, 'critic-import', [row({ critic: 'Uncertain review', score: 100, confidence: .5 })]);
-  state = ingest(state, 'vintage-import', [{ region: 'Example Bordeaux', type: 'Red', vintage: 2019, score: 100, confidence: .5 }]);
+  state = ingest(state, 'vintage-import', [{ country:'France', publication:'Wine Advocate', source_reference:'Synthetic test chart, not real ratings', region: 'Example Bordeaux', type: 'Red', vintage: 2019, score: 100, confidence: .5 }]);
   const result = rankInventory(state, {}, now)[0];
   assert.equal(result.quality, null); assert.equal(result.vintage, null); assert.equal(result.score, rankInventory(inventory(), {}, now)[0].score); assert.equal(result.exclusions.length, 2);
 });

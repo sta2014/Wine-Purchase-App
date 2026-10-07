@@ -1,3 +1,4 @@
+import { VINTAGE_PROVIDERS } from './vintages.js';
 export const CATEGORIES = ['inventory', 'market', 'critic', 'community', 'vintage'];
 export const STATUSES = ['Active', 'Disabled', 'Error', 'Authentication Required', 'Manual Import', 'Unsupported / unavailable'];
 const source = (id, name, category, method, enabled, note, homepage = '') => ({ id, name, category, method, enabled, note, homepage, url: '', accessApproved: false, authEnv: '', refreshHours: ['inventory', 'market'].includes(category) ? 6 : 720, status: enabled ? 'Manual Import' : 'Disabled', lastChecked: null, lastSuccess: null, nextDue: null, failures: 0, error: '', etag: '', lastModified: '' });
@@ -7,6 +8,7 @@ export function defaultSources() {
     source('market-import', 'Approved market price imports', 'market', 'manual', true, 'CSV/JSON observations from sources you are permitted to use.'),
     source('critic-import', 'Approved critic review imports', 'critic', 'manual', true, 'Import licensed/exported scores and windows with critic, scale, and provenance.'),
     source('vintage-import', 'Curated vintage assessments', 'vintage', 'manual', true, 'Documented region/type/vintage assessments; no generated vintage ratings.'),
+    ...VINTAGE_PROVIDERS.filter(p=>p.id!=='regional').map(p=>source(`vintage-${p.id}`,`${p.name} vintage assessments`,'vintage',p.method,false,p.note,p.homepage)),
     source('community-import', 'Approved community data imports', 'community', 'manual', true, 'Community scores remain separate from professional critic scores.'),
     ...[['wine-searcher', 'Wine-Searcher', 'market'], ['wine-advocate', 'Robert Parker / Wine Advocate', 'critic'], ['vinous', 'Vinous', 'critic'], ['decanter', 'Decanter', 'critic'], ['spectator', 'Wine Spectator', 'critic'], ['suckling', 'James Suckling', 'critic'], ['jancis', 'Jancis Robinson', 'critic'], ['dunnuck', 'Jeb Dunnuck', 'critic'], ['enthusiast', 'Wine Enthusiast', 'critic'], ['burghound', 'Burghound / Allen Meadows', 'critic'], ['morris', 'Jasper Morris / Inside Burgundy', 'critic'], ['cellartracker', 'CellarTracker', 'community']].map(([id, name, category]) => source(id, name, category, 'licensed', false, 'No access agreement or documented endpoint configured. Requires approved/manual/licensed ingestion; no scraping implemented.')),
   ];
@@ -37,4 +39,9 @@ export function validateSource(input) {
   s.name = s.name.trim();
   s.status = sourceStatus(s);
   return s;
+}
+
+export function ensureVintageSources(state) {
+  for(const s of defaultSources().filter(s=>s.category==='vintage')) if(!state.sources.some(existing=>existing.id===s.id)) state.sources.push(s);
+  return state;
 }

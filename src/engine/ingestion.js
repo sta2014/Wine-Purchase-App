@@ -1,7 +1,8 @@
+import { normalizeVintageAssessment, vintageRecordKey, upsertVintage } from './vintages.js';
 import { publicationName, criticInfo, isCommunity, parseCriticScore, retailerScores, upsertReview, reviewKey } from './critics.js';
 import { identifyWine, number, packageSummary } from './identity.js';
 import { identifyListings } from './listings.js';
-import { defaultSources, validateSource, STATUSES } from './sources.js';
+import { defaultSources, validateSource, STATUSES, ensureVintageSources } from './sources.js';
 import { rankInventory, validatePreferences } from './ranking.js';
 export const ENGINE_KEY = 'wine-intelligence.v1';
 export const DEFAULT_WEIGHTS = { value: 35, quality: 35, vintage: 10, window: 10, confidence: 10 };
@@ -58,10 +59,7 @@ export function normalizeRow(raw, kind, source, now) {
   const observedAt = stamp(r.observed_at, now);
   const provenance = { sourceId: source.id, sourceName: source.name, sourceURL: safeURL(r.source_url), retrievedAt: now, observedAt, rawTitle: String(r.raw_title ?? ''), confidence: number(r.confidence ?? 1, 'Data confidence', { min: 0, max: 1 }), warnings: [] };
   if (kind === 'vintage') {
-    const region = String(r.region ?? '').trim(), type = String(r.type ?? '').trim();
-    if (!region || !type) throw new Error('Vintage assessments require region and wine type.');
-    const scale = number(r.scale ?? 100, 'Vintage scale', { min: 1, max: 100 });
-    return { ...provenance, region, type, vintage: number(r.vintage, 'Vintage', { min: 1800, max: new Date().getFullYear() + 1, integer: true }), score: number(r.score, 'Vintage score', { min: 0, max: scale }), scale, notes: String(r.notes ?? '').slice(0, 2000) };
+    return normalizeVintageAssessment(r,source,provenance);
   }
   const wine = identifyWine(r);
   provenance.rawTitle = wine.rawTitle;
@@ -156,7 +154,8 @@ export function ingestDataset(state, sourceId, dataset, now = new Date().toISOSt
       if (index < 0) { listingIndexes.set(id,next.listings.length); next.listings.push(listing); } else next.listings[index] = listing;
       next.history.push({ ...listing, event: old ? 'observed' : 'first_seen' });
     } else if (['critic', 'community'].includes(source.category)) upsertReview(next, record, reviewIndex);
-    else next[source.category === 'market' ? 'market' : 'vintages'].push(record);
+    else if (source.category==='vintage') { record.recordKey=vintageRecordKey(record); const previous=next.vintages.find(r=>r.recordKey===record.recordKey); const correction=previous && next.vintageCorrections?.[previous.id]; if(correction) { const fixed=normalizeVintageAssessment({...record.rawGeography,vintage:record.vintage,publication:record.publication,original_rating:record.rawRating,rating_system:record.ratingSystem,scale:record.scale,professional:record.professional,provisional:record.provisional,source_reference:record.sourceReference,context_tags:record.contextTags,notes:record.notes,...correction.fields},source,record); Object.assign(record,fixed,{recordKey:record.recordKey,rawGeography:record.rawGeography,mappingFields:correction.fields}); } upsertVintage(next,record); }
+    else next.market.push(record);
   }
   let criticImportedCount = 0, criticWarningCount = 0;
   if (source.category === 'inventory') for (let i = 0; i < normalized.length; i++) {
@@ -185,7 +184,7 @@ export function ingestDataset(state, sourceId, dataset, now = new Date().toISOSt
   return next;
 }
 export function captureScores(state, at = new Date().toISOString(), runId = 'preferences') {
-  for (const row of rankInventory(state, { available: false }, new Date(at))) state.scoreHistory.push({ listingId: row.listing.id, at, runId, score: row.score, coverage: row.coverage, discount: row.discount, preferences: structuredClone(state.preferences), criticComposite: row.quality, criticComponent: row.criticComponent, criticContribution: row.breakdown.find(b => b.key === 'quality').contribution, criticEvidence: row.professional.map(r => r.id), criticConfidence: row.criticComposite.confidence, algorithmVersion: 2 });
+  for (const row of rankInventory(state, { available: false }, new Date(at))) state.scoreHistory.push({ listingId: row.listing.id, at, runId, score: row.score, coverage: row.coverage, discount: row.discount, preferences: structuredClone(state.preferences), criticComposite: row.quality, criticComponent: row.criticComponent, criticContribution: row.breakdown.find(b => b.key === 'quality').contribution, criticEvidence: row.professional.map(r => r.id), criticConfidence: row.criticComposite.confidence, vintageComposite:row.vintage,vintageComponent:row.vintageComponent,vintageContribution:row.breakdown.find(b=>b.key==='vintage').contribution,vintageConfidence:row.vintageIntelligence.confidence,vintageGeography:row.vintageIntelligence.regionUsed,vintageEvidence:row.assessments.map(r=>({id:r.id,original:r.rawRating,normalized:r.normalizedScore,publication:r.publication,reference:r.sourceReference || r.sourceURL})),algorithmVersion: 3 });
 }
 export function validateBackup(raw) {
   const state = structuredClone(typeof raw === 'string' ? JSON.parse(raw) : raw);
@@ -220,5 +219,15 @@ export function validateBackup(raw) {
     if (r.scoreHigh != null && (!Number.isFinite(r.scoreHigh) || r.scoreHigh < r.score || r.scoreHigh > r.scale)) throw new Error('Invalid review range.');
     if (r.verified != null && typeof r.verified !== 'boolean') throw new Error('Invalid review verification.');
   }
-  return structuredClone(state);
+  for(const name of ['geographyCorrections','vintageCorrections','vintageDecisions']) {
+    if(state[name] && (typeof state[name]!=='object' || Array.isArray(state[name]) || Object.keys(state[name]).length>100000)) throw new Error(`Invalid ${name}.`);
+  }
+  for(const [id,c] of Object.entries(state.geographyCorrections || {})) if(!state.wines[id] || !c?.fields || Object.values(c.fields).some(v=>typeof v!=='string' || v.length>250)) throw new Error('Invalid geographic correction.');
+  for(const [id,c] of Object.entries(state.vintageCorrections || {})) if(!state.vintages.some(r=>r.id===id) || !c?.fields || Object.values(c.fields).some(v=>typeof v!=='string' || v.length>250)) throw new Error('Invalid vintage source correction.');
+  for(const d of Object.values(state.vintageDecisions || {})) if(!state.wines[d?.wineId] || !state.vintages.some(r=>r.id===d.recordId) || !['approved','rejected'].includes(d.state)) throw new Error('Invalid vintage match decision.');
+  for(const r of state.vintages) if(r.geography) {
+    const rating=normalizeVintageAssessment({...r.rawGeography,...r.mappingFields,vintage:r.vintage,publication:r.publication,original_rating:r.rawRating,rating_system:r.ratingSystem,scale:r.scale,professional:r.professional,provisional:r.provisional,source_reference:r.sourceReference},state.sources.find(s=>s.id===r.sourceId),r);
+    if(rating.normalizedScore!==r.normalizedScore || rating.geography.leafId!==r.geography.leafId || rating.eligible!==r.eligible || rating.professional!==r.professional) throw new Error('Invalid normalized vintage assessment.');
+  }
+  return structuredClone(ensureVintageSources(state));
 }

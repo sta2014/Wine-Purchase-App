@@ -1,1 +1,1 @@
-region,type,vintage,score,scale,source_url,observed_at,confidence,notes
+country,region,subregion,appellation,vineyard,type,style,vintage,publication,original_rating,rating_system,scale,source_url,source_reference,observed_at,confidence,professional,context_tags,notes

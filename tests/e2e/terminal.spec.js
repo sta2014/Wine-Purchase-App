@@ -151,7 +151,7 @@ test('inventory, enrichment, filtering, explanations and source switches persist
   await importRows(page, 'flickinger', [{ ...wine, price: 80, currency: 'USD', available_quantity: 4, external_id: 'offer-1' }, { ...wine, raw_title: 'Example Estate Reserve 2019 Magnum', bottle_ml: 1500, price: 180, currency: 'USD', available_quantity: 1, external_id: 'offer-2' }]);
   await importRows(page, 'market-import', [{ ...wine, price: 100, currency: 'USD', merchant: 'Independent merchant', source_url: 'https://example.com/quote' }]);
   await importRows(page, 'critic-import', [{ ...wine, critic: 'Authorized publication', score: 94, scale: 100, drink_from: 2024, drink_to: 2035 }]);
-  await importRows(page, 'vintage-import', [{ region: 'Bordeaux', type: 'Red', vintage: 2019, score: 95, scale: 100 }]);
+  await importRows(page, 'vintage-import', [{ publication:'Wine Advocate', source_reference:'Synthetic test chart, not factual data', region: 'Bordeaux', type: 'Red', vintage: 2019, score: 95, scale: 100 }]);
   const rows = page.locator('.terminal-table tbody tr');
   await expect(rows).toHaveCount(2);
   await expect(rows.first()).toContainText('20.0%');

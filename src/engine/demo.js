@@ -14,6 +14,6 @@ export function demoState(now = new Date().toISOString()) {
   state = ingestDataset(state, 'demo-inventory', { rows: wines, completeSnapshot: true }, now);
   state = ingestDataset(state, 'demo-market', { rows: wines.slice(0, 3).flatMap((w, i) => [{ ...w, price: [120, 50, 65][i], merchant: 'Synthetic merchant A' }, { ...w, price: [130, 60, 70][i], merchant: 'Synthetic merchant B' }]) }, now);
   state = ingestDataset(state, 'demo-critic', { rows: wines.slice(0, 3).map((w, i) => ({ ...w, critic: 'Synthetic reviewer (not a real critic)', score: [96, 92, 94][i], scale: 100, drink_from: [2025, 2028, 2024][i], drink_to: [2040, 2042, 2030][i] })) }, now);
-  state = ingestDataset(state, 'demo-vintage', { rows: [{ region: 'Example Bordeaux', type: 'Red', vintage: 2019, score: 96, scale: 100 }, { region: 'Example Bordeaux', type: 'Red', vintage: 2020, score: 94, scale: 100 }, { region: 'Example Burgundy', type: 'White', vintage: 2022, score: 95, scale: 100 }] }, now);
+  state = ingestDataset(state, 'demo-vintage', { rows: [{ country:'France', region: 'Example Bordeaux', type: 'Red', vintage: 2019, score: 96, scale: 100 }, { country:'France', region: 'Example Bordeaux', type: 'Red', vintage: 2020, score: 94, scale: 100 }, { country:'France', region: 'Example Burgundy', type: 'White', vintage: 2022, score: 95, scale: 100 }] }, now);
   return state;
 }

@@ -3,7 +3,7 @@ import { CRITICS, criticColumn } from './critics.js';
 import { parsePackageFormat } from './identity.js';
 const aliases = {
   wine: 'raw_title', winename: 'raw_title', winedescription: 'raw_title', description: 'raw_title', productname: 'raw_title', name: 'raw_title', title: 'raw_title', rawtitle: 'raw_title',
-  regionname: 'region', priceusd: 'price', scores: 'ratings', producer: 'producer', winery: 'producer', estate: 'producer', cuvee: 'cuvee', vineyard: 'vineyard', appellation: 'appellation', region: 'region', country: 'country',
+  subregion:'subregion', style:'style', originalrating:'original_rating', ratingsystem:'rating_system', professional:'professional', contexttags:'context_tags', regionname: 'region', priceusd: 'price', scores: 'ratings', producer: 'producer', winery: 'producer', estate: 'producer', cuvee: 'cuvee', vineyard: 'vineyard', appellation: 'appellation', region: 'region', country: 'country',
   vintage: 'vintage', year: 'vintage', vintageyear: 'vintage', bottleml: 'bottle_ml', bottlesizeml: 'bottle_ml', sizeml: 'bottle_ml', size: 'format', bottlesize: 'format', format: 'format', packageformat: 'format', packagesize: 'format',
   packcount: 'pack_count', packsize: 'pack_count', bottlecount: 'pack_count', packaging: 'packaging', type: 'type', winetype: 'type', color: 'type', colour: 'type',
   price: 'price', askingprice: 'price', retailprice: 'price', unitprice: 'price', bottleprice: 'unit_price', priceperbottle: 'unit_price', currency: 'currency',

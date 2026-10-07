@@ -1,3 +1,4 @@
+import { ensureVintageSources } from '../src/engine/sources.js';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -18,7 +19,7 @@ export class EngineDatabase {
       const records = this.db.prepare(`SELECT data FROM ${table} ORDER BY rowid`).all().map(r => JSON.parse(r.data));
       state[key] = key === 'wines' ? Object.fromEntries(records.map(w => [w.id, w])) : records;
     }
-    return state;
+    return ensureVintageSources(state);
   }
   save(state) {
     this.db.exec('BEGIN IMMEDIATE');
