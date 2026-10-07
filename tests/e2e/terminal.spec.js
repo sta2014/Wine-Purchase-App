@@ -184,6 +184,31 @@ test('Excel rows with MV, NV, zero and out-of-range vintages import with visible
   expect(saved.listings.map(l => l.price)).toEqual([480,240,190,360]);
   expect(saved.wines[saved.listings[2].wineId].rawVintage).toBe('0');
 });
+test('repeated Excel wine offers import without manual IDs and reimport without multiplying stock', async ({ page }) => {
+  const importFile = async () => {
+    await page.getByRole('button', { name: 'Import data', exact: true }).click();
+    await page.getByLabel('Excel, CSV or JSON file').setInputFiles('tests/fixtures/repeated-offers.xlsx');
+    await page.getByRole('button', { name: 'Validate and import', exact: true }).click();
+    await page.getByRole('button', { name: 'Confirm Excel import', exact: true }).click();
+    await expect(page.locator('#engine-dialog')).not.toBeVisible();
+  };
+  await importFile();
+  await expect(page.locator('#engine-notice')).toContainText('3 repeated offers kept separate');
+  const rows = page.locator('#engine-results .terminal-table tbody tr');
+  await expect(rows).toHaveCount(5);
+  await expect(rows.filter({ hasText: 'Separate offer' })).toHaveCount(3);
+  const read = () => page.evaluate(() => JSON.parse(localStorage.getItem('wine-intelligence.v1')));
+  const first = await read();
+  expect(first.listings.map(l => [l.price,l.availableQuantity])).toEqual([[480,1],[240,2],[190,3],[360,4],[480,1]]);
+  await rows.filter({ hasText: 'Separate offer' }).first().getByRole('button', { name: 'Explain', exact: true }).click();
+  await expect(page.locator('#engine-dialog')).toContainText('Lot-level history is uncertain');
+  await page.locator('#engine-dialog-close').click();
+  await importFile();
+  const second = await read();
+  expect(second.listings.map(l => l.id)).toEqual(first.listings.map(l => l.id));
+  expect(second.listings).toHaveLength(5); expect(second.history).toHaveLength(10);
+  await page.reload(); await expect(rows).toHaveCount(5);
+});
 test('Excel package formats display package prices and standard-volume equivalents without changing physical bottle counts', async ({ page }) => {
   await page.getByRole('button', { name: 'Import data', exact: true }).click();
   await page.getByLabel('Excel, CSV or JSON file').setInputFiles('tests/fixtures/package-formats.xlsx');

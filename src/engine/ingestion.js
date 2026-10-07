@@ -1,4 +1,5 @@
 import { identifyWine, number, packageSummary } from './identity.js';
+import { identifyListings } from './listings.js';
 import { defaultSources, validateSource, STATUSES } from './sources.js';
 import { rankInventory, validatePreferences } from './ranking.js';
 export const ENGINE_KEY = 'wine-intelligence.v1';
@@ -81,7 +82,7 @@ export function normalizeRow(raw, kind, source, now) {
     if (priceTerms === 'unspecified') base.warnings.push('Taxes/shipping terms unspecified; comparison is indicative, not executable arbitrage.');
     const saleType = String(r.sale_type ?? 'retail');
     if (!['retail', 'auction'].includes(saleType)) throw new Error('sale_type must be retail or auction.');
-    return { ...base, price: packagePrice, unitPrice, pricePer750: unitPrice * 750 / wine.bottleMl, currency, availableQuantity, isAvailable, priceTerms, saleType, merchant: String(r.merchant ?? source.name).slice(0, 150), externalId: String(r.external_id ?? '').slice(0, 150) };
+    return { ...base, price: packagePrice, unitPrice, pricePer750: unitPrice * 750 / wine.bottleMl, currency, availableQuantity, isAvailable, priceTerms, saleType, merchant: String(r.merchant ?? source.name).slice(0, 150), externalId: String(r.external_id ?? '').trim().slice(0, 150) };
   }
   if (['critic', 'community'].includes(kind)) {
     const critic = String(r.critic ?? r.publication ?? '').trim();
@@ -106,7 +107,8 @@ export function ingestDataset(state, sourceId, dataset, now = new Date().toISOSt
   if (!Array.isArray(rows) || rows.length > 10000) throw new Error('A dataset may contain at most 10,000 rows.');
   if (!rows.length && !dataset.completeSnapshot) throw new Error('Empty import requires explicit completeSnapshot: true.');
   // Validate every row before any updates, including snapshot removal.
-  const normalized = rows.map((r, i) => { try { return normalizeRow(r, source.category, source, now); } catch (error) { throw new Error(`Row ${i + 1}: ${error.message}`); } });
+  let normalized = rows.map((r, i) => { try { return normalizeRow(r, source.category, source, now); } catch (error) { throw new Error(`Row ${i + 1}: ${error.message}`); } });
+  if (source.category === 'inventory') normalized = identifyListings(normalized, source, state.listings);
   const next = structuredClone(state);
   const runId = crypto.randomUUID();
   const ids = new Set();
@@ -117,8 +119,8 @@ export function ingestDataset(state, sourceId, dataset, now = new Date().toISOSt
       next.wines[item.wineId] = existing ? { ...existing } : item.wine;
       if (existing) for (const field of ['region', 'country', 'type']) if (!existing[field] || existing[field] === 'Unknown') next.wines[item.wineId][field] = item.wine[field];
     }
-    const id = source.category === 'inventory' ? `${source.id}:${item.externalId || item.wineId}` : crypto.randomUUID();
-    if (ids.has(id)) throw new Error('Duplicate listing ID in snapshot; supply a unique external_id for separate offers.');
+    const id = source.category === 'inventory' ? item.id : crypto.randomUUID();
+    if (ids.has(id)) throw new Error('Inventory offer IDs could not be assigned uniquely.');
     ids.add(id);
     const record = { ...item, id, runId };
     if (source.category === 'inventory') {
@@ -136,7 +138,7 @@ export function ingestDataset(state, sourceId, dataset, now = new Date().toISOSt
       next.history.push({ ...listing, event: 'absent_from_complete_snapshot', retrievedAt: now });
     }
   }
-  next.runs.push({ id: runId, sourceId, category: source.category, at: now, count: rows.length, vintageWarningCount: normalized.filter(r => r.wine?.vintageKind === 'unknown' && r.wine.rawVintage).length, completeSnapshot: Boolean(dataset.completeSnapshot), status: 'success' });
+  next.runs.push({ id: runId, sourceId, category: source.category, at: now, count: rows.length, inferredOfferCount: normalized.filter(r => r.listingIdentity === 'inferred-offer').length, vintageWarningCount: normalized.filter(r => r.wine?.vintageKind === 'unknown' && r.wine.rawVintage).length, completeSnapshot: Boolean(dataset.completeSnapshot), status: 'success' });
   const saved = next.sources.find(s => s.id === sourceId);
   saved.lastChecked = now; saved.lastSuccess = now; saved.error = ''; saved.failures = 0;
   saved.nextDue = new Date(Date.parse(now) + saved.refreshHours * 3600000).toISOString();

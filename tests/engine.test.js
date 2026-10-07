@@ -13,6 +13,46 @@ const ingest = (state, sourceId, rows, time = at, completeSnapshot = false) => i
 const inventory = () => ingest(initialState(), 'flickinger', [row()]);
 const withMarket = (marketRows = [row({ price: 100, merchant: 'Retailer A' })]) => ingest(inventory(), 'market-import', marketRows);
 
+test('repeated wines without retailer IDs keep separate offers and stable IDs on reorder and reimport', () => {
+  const rows = [row({ price: 80, available_quantity: 3 }), row({ price: 95, available_quantity: 2 }), row({ price: 95, available_quantity: 2 })];
+  const first = ingest(initialState(), 'flickinger', rows);
+  assert.equal(first.listings.length, 3); assert.equal(new Set(first.listings.map(l => l.id)).size, 3);
+  assert.deepEqual(first.listings.map(l => [l.price, l.availableQuantity]), [[80,3],[95,2],[95,2]]);
+  assert.equal(new Set(first.listings.map(l => l.wineId)).size, 1);
+  const second = ingest(first, 'flickinger', rows.toReversed(), '2026-10-06T13:00:00Z', true);
+  assert.equal(second.listings.length, 3); assert.equal(second.history.length, 6);
+  for (const listing of first.listings) assert.equal(second.listings.find(l => l.id === listing.id).price, listing.price);
+  const changed = ingest(second, 'flickinger', [row({ price: 85, available_quantity: 1 }), ...rows.slice(1)], '2026-10-06T14:00:00Z', true);
+  assert.equal(changed.listings.length, 3); assert.equal(changed.listings.find(l => l.id === first.listings[0].id).price, 85);
+  assert.ok(changed.listings.every(l => l.warnings.some(w => w.includes('Lot-level history is uncertain'))));
+  assert.equal(validateBackup(changed).listings.length, 3);
+});
+
+test('reused retailer IDs separate formats and retain histories when only one offer remains', () => {
+  const rows = [row({ external_id: 'same' }), row({ external_id: 'same', raw_title: 'Example Estate Reserve 2019 1.5L', bottle_ml: 1500, price: 180 })];
+  const first = ingest(initialState(), 'flickinger', rows);
+  assert.equal(first.listings.length, 2);
+  const reversed = ingest(first, 'flickinger', rows.toReversed(), '2026-10-06T13:00:00Z', true);
+  for (const l of first.listings) assert.equal(reversed.listings.find(r => r.id === l.id).wineId, l.wineId);
+  const remaining = ingest(reversed, 'flickinger', [rows[1]], '2026-10-06T14:00:00Z', true);
+  assert.equal(remaining.listings.filter(l => l.isAvailable).length, 1);
+  assert.equal(remaining.listings.find(l => l.isAvailable).id, first.listings.find(l => l.bottleMl === 1500).id);
+  assert.equal(remaining.listings.find(l => l.bottleMl === 750).isAvailable, false);
+});
+
+test('unique retailer IDs retain their original identity and blank IDs fall back safely', () => {
+  const first = ingest(initialState(), 'flickinger', [row({ external_id: '  offer-1  ' })]);
+  assert.equal(first.listings[0].id, 'flickinger:offer-1');
+  assert.equal(first.listings[0].listingIdentity, 'source-id');
+  const blank = ingest(initialState(), 'flickinger', [row({ external_id: ' ' }), row({ external_id: '' })]);
+  assert.equal(blank.listings.length, 2); assert.ok(blank.listings.every(l => l.externalId === ''));
+  const original = inventory(); const duplicate = ingest(original, 'flickinger', [row(), row({ price: 90 })]);
+  assert.equal(duplicate.listings[0].id, original.listings[0].id); assert.equal(duplicate.listings.length, 2);
+  const before = JSON.stringify(duplicate);
+  assert.throws(() => ingest(duplicate, 'flickinger', [row(),row({ price: -1 })], at, true));
+  assert.equal(JSON.stringify(duplicate), before);
+});
+
 test('non-vintage and unusual year values retain inventory with safe provenance instead of blocking a file', () => {
   const values = ['NV', 'N.V.', 'Non-Vintage', 0, 9999, 1799, '2019/2020', new Date().getFullYear() + 5];
   let state = ingest(initialState(), 'flickinger', [row({ external_id: 'valid' }), ...values.map((vintage, i) => row({ vintage, external_id: `odd-${i}` }))]);
