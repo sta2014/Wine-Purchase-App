@@ -174,3 +174,11 @@ test('actual critic HTTP route authenticates, logs import lookup and returns str
     assert.equal((await post('/critics',{wineId:'unknown'})).status,400);stored=db.load();assert.equal(stored.reviews.length,2);assert.equal(validateBackup(stored).listings.length,1);
   }finally{await new Promise(resolve=>app.server.close(resolve));db.close();}
 });
+
+
+test('retailer reimport with a renamed file or changed listing URL keeps match decisions and provenance',()=>{
+  let s=ingestDataset(initialState(),'flickinger',{rows:[row({WA:96,source_url:'https://retailer.example/offer-a'})],sourceReference:'first.xlsx'},at);const id=s.reviews[0].id;
+  s=applyAction(s,{type:'decision',wineId:s.listings[0].wineId,observationId:id,decision:'rejected'},at);
+  s=ingestDataset(s,'flickinger',{rows:[row({WA:96,source_url:'https://retailer.example/offer-b'})],sourceReference:'renamed.xlsx'},'2026-10-07T13:00:00Z');
+  assert.equal(s.reviews.length,1);assert.equal(s.reviews[0].id,id);assert.equal(s.decisions[id].state,'rejected');assert.equal(s.reviews[0].sourceReferences.length,2);assert.equal(rankInventory(s,{},now)[0].quality,null);
+});

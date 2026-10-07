@@ -48,11 +48,11 @@ export function retailerScores(raw) {
 }
 export function reviewKey(r) {
   // Retrieval time is deliberately excluded: refreshing preserves IDs and decisions.
-  return JSON.stringify([r.sourceId, r.wine?.beverageId || r.wineId, normalized(r.publication || r.critic), normalized(r.reviewer || ''), r.reviewDate || '', r.sourceReference || '', r.sourceURL || '', r.score, r.scoreHigh ?? r.score, r.plus === true, r.scale, r.drinkFrom, r.drinkTo, r.formatSpecific ? r.wineId : '', r.kind]);
+  return JSON.stringify([r.sourceId, r.wine?.beverageId || r.wineId, normalized(r.publication || r.critic), normalized(r.reviewer || ''), r.reviewDate || '', r.verification === 'retailer_reported' ? '' : r.sourceReference || '', r.verification === 'retailer_reported' ? '' : r.sourceURL || '', r.score, r.scoreHigh ?? r.score, r.plus === true, r.scale, r.drinkFrom, r.drinkTo, r.formatSpecific ? r.wineId : '', r.kind]);
 }
 export function upsertReview(state, record, index = null) {
-  const key = reviewKey(record), existing = index ? index.get(key) : state.reviews.find(r => (r.reviewKey || reviewKey(r)) === key);
-  if (existing) { existing.lastRetrievedAt = record.retrievedAt; if (record.verified && !existing.verified) { existing.verified = true; existing.verification = record.verification; } return false; }
+  const key = reviewKey(record), existing = index ? index.get(key) : state.reviews.find(r => reviewKey(r) === key);
+  if (existing) { existing.lastRetrievedAt = record.retrievedAt; existing.reviewKey = key; existing.sourceReferences ||= [{reference:existing.sourceReference || '',url:existing.sourceURL || ''}]; if(!existing.sourceReferences.some(s=>s.reference===(record.sourceReference || '') && s.url===(record.sourceURL || ''))) existing.sourceReferences.push({reference:record.sourceReference || '',url:record.sourceURL || ''}); if (record.verified && !existing.verified) { existing.verified = true; existing.verification = record.verification; } return false; }
   const saved = { ...record, reviewKey: key }; state.reviews.push(saved); index?.set(key, saved); return true;
 }
 const median = values => { const s = [...values].sort((a,b) => a-b), i = Math.floor(s.length/2); return s.length % 2 ? s[i] : (s[i-1]+s[i])/2; };

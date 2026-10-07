@@ -117,7 +117,7 @@ export function ingestDataset(state, sourceId, dataset, now = new Date().toISOSt
   });
   if (source.category === 'inventory') normalized = identifyListings(normalized, source, state.listings);
   const next = structuredClone(state);
-  const reviewIndex = new Map(next.reviews.map(r=>[r.reviewKey || reviewKey(r), r]));
+  const reviewIndex = new Map(next.reviews.map(r=>[reviewKey(r), r]));
   const runId = crypto.randomUUID();
   const ids = new Set();
   for (const item of normalized) {
