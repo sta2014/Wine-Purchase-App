@@ -1,3 +1,4 @@
+import { normalizeMarketOffer, upsertMarket, marketOfferKey } from './market.js';
 import { normalizeVintageAssessment, vintageRecordKey, upsertVintage } from './vintages.js';
 import { publicationName, criticInfo, isCommunity, parseCriticScore, retailerScores, upsertReview, reviewKey } from './critics.js';
 import { identifyWine, number, packageSummary } from './identity.js';
@@ -84,7 +85,8 @@ export function normalizeRow(raw, kind, source, now) {
     if (priceTerms === 'unspecified') base.warnings.push('Taxes/shipping terms unspecified; comparison is indicative, not executable arbitrage.');
     const saleType = String(r.sale_type ?? 'retail');
     if (!['retail', 'auction'].includes(saleType)) throw new Error('sale_type must be retail or auction.');
-    return { ...base, price: packagePrice, unitPrice, pricePer750: unitPrice * 750 / wine.bottleMl, currency, availableQuantity, isAvailable, priceTerms, saleType, merchant: String(r.merchant ?? source.name).slice(0, 150), externalId: String(r.external_id ?? '').trim().slice(0, 150) };
+    const offer = { ...base, price: packagePrice, unitPrice, pricePer750: unitPrice * 750 / wine.bottleMl, currency, availableQuantity, isAvailable, priceTerms, saleType, merchant: String(r.merchant ?? source.name).slice(0, 150), externalId: String(r.external_id ?? '').trim().slice(0, 150) };
+    return kind==='market' ? normalizeMarketOffer(r,offer,source,now) : offer;
   }
   if (['critic', 'community'].includes(kind)) {
     const critic = String(r.publication ?? r.critic ?? '').trim();
@@ -132,6 +134,7 @@ export function ingestDataset(state, sourceId, dataset, now = new Date().toISOSt
   if (source.category === 'inventory') normalized = identifyListings(normalized, source, state.listings);
   const next = structuredClone(state);
   const reviewIndex = new Map(next.reviews.map(r=>[reviewKey(r), r]));
+  const marketIndex = new Map(next.market.map(r=>[marketOfferKey(r),r]));
   const listingIndexes = new Map(next.listings.map((l,i)=>[l.id,i]));
   const runId = crypto.randomUUID();
   const ids = new Set();
@@ -155,8 +158,9 @@ export function ingestDataset(state, sourceId, dataset, now = new Date().toISOSt
       next.history.push({ ...listing, event: old ? 'observed' : 'first_seen' });
     } else if (['critic', 'community'].includes(source.category)) upsertReview(next, record, reviewIndex);
     else if (source.category==='vintage') { record.recordKey=vintageRecordKey(record); const previous=next.vintages.find(r=>r.recordKey===record.recordKey); const correction=previous && next.vintageCorrections?.[previous.id]; if(correction) { const fixed=normalizeVintageAssessment({...record.rawGeography,vintage:record.vintage,publication:record.publication,original_rating:record.rawRating,rating_system:record.ratingSystem,scale:record.scale,professional:record.professional,provisional:record.provisional,source_reference:record.sourceReference,context_tags:record.contextTags,notes:record.notes,...correction.fields},source,record); Object.assign(record,fixed,{recordKey:record.recordKey,rawGeography:record.rawGeography,mappingFields:correction.fields}); } upsertVintage(next,record); }
-    else next.market.push(record);
+    else upsertMarket(next,record,marketIndex);
   }
+  if(source.category==='market' && completeSnapshot) for(const record of next.market) if(record.sourceId===source.id && record.runId!==runId && record.availabilityStatus!=='EXPIRED') { record.revisions ||= []; record.revisions.push({price:record.price,observedAt:record.observedAt,verifiedAt:record.verifiedAt,availabilityStatus:record.availabilityStatus,event:'absent_from_complete_snapshot'}); record.availabilityStatus='EXPIRED'; record.isAvailable=false; record.observedAt=now; }
   let criticImportedCount = 0, criticWarningCount = 0;
   if (source.category === 'inventory') for (let i = 0; i < normalized.length; i++) {
     const raw = rows[inputIndexes[i]], extracted = retailerScores(raw), item = normalized[i];
@@ -184,7 +188,7 @@ export function ingestDataset(state, sourceId, dataset, now = new Date().toISOSt
   return next;
 }
 export function captureScores(state, at = new Date().toISOString(), runId = 'preferences') {
-  for (const row of rankInventory(state, { available: false }, new Date(at))) state.scoreHistory.push({ listingId: row.listing.id, at, runId, score: row.score, coverage: row.coverage, discount: row.discount, preferences: structuredClone(state.preferences), criticComposite: row.quality, criticComponent: row.criticComponent, criticContribution: row.breakdown.find(b => b.key === 'quality').contribution, criticEvidence: row.professional.map(r => r.id), criticConfidence: row.criticComposite.confidence, vintageComposite:row.vintage,vintageComponent:row.vintageComponent,vintageContribution:row.breakdown.find(b=>b.key==='vintage').contribution,vintageConfidence:row.vintageIntelligence.confidence,vintageGeography:row.vintageIntelligence.regionUsed,vintageEvidence:row.assessments.map(r=>({id:r.id,original:r.rawRating,normalized:r.normalizedScore,publication:r.publication,reference:r.sourceReference || r.sourceURL})),algorithmVersion: 3 });
+  for (const row of rankInventory(state, { available: false }, new Date(at))) state.scoreHistory.push({ listingId: row.listing.id, at, runId, score: row.score, coverage: row.coverage, discount: row.discount, preferences: structuredClone(state.preferences), criticComposite: row.quality, criticComponent: row.criticComponent, criticContribution: row.breakdown.find(b => b.key === 'quality').contribution, criticEvidence: row.professional.map(r => r.id), criticConfidence: row.criticComposite.confidence, vintageComposite:row.vintage,vintageComponent:row.vintageComponent,vintageContribution:row.breakdown.find(b=>b.key==='vintage').contribution,vintageConfidence:row.vintageIntelligence.confidence,vintageGeography:row.vintageIntelligence.regionUsed,vintageEvidence:row.assessments.map(r=>({id:r.id,original:r.rawRating,normalized:r.normalizedScore,publication:r.publication,reference:r.sourceReference || r.sourceURL})),marketReference:row.referencePrice,marketLow:row.marketIntelligence.lowestPrice,marketConfidence:row.marketIntelligence.confidence,marketContribution:row.breakdown.find(b=>b.key==='value').contribution,marketEvidence:row.marketEvidence.map(r=>({id:r.id,price:r.comparisonPrice,currency:r.comparisonCurrency,verifiedAt:r.verifiedAt,url:r.offerURL || r.sourceURL})),algorithmVersion: 4 });
 }
 export function validateBackup(raw) {
   const state = structuredClone(typeof raw === 'string' ? JSON.parse(raw) : raw);
@@ -228,6 +232,14 @@ export function validateBackup(raw) {
   for(const r of state.vintages) if(r.geography) {
     const rating=normalizeVintageAssessment({...r.rawGeography,...r.mappingFields,vintage:r.vintage,publication:r.publication,original_rating:r.rawRating,rating_system:r.ratingSystem,scale:r.scale,professional:r.professional,provisional:r.provisional,source_reference:r.sourceReference},state.sources.find(s=>s.id===r.sourceId),r);
     if(rating.normalizedScore!==r.normalizedScore || rating.geography.leafId!==r.geography.leafId || rating.eligible!==r.eligible || rating.professional!==r.professional) throw new Error('Invalid normalized vintage assessment.');
+  }
+  for(const name of ['marketControls','marketCorrections','merchantReliability']) if(state[name] && (typeof state[name]!=='object' || Array.isArray(state[name]) || Object.keys(state[name]).length>100000)) throw new Error(`Invalid ${name}.`);
+  for(const [id,c] of Object.entries(state.marketControls || {})) if(!state.market.some(r=>r.id===id) || typeof c.excluded!=='boolean' || (c.duplicateOf && !state.market.some(r=>r.id===c.duplicateOf))) throw new Error('Invalid market control.');
+  for(const [id,c] of Object.entries(state.marketCorrections || {})) if(!state.market.some(r=>r.id===id) || !Number.isInteger(c.bottleMl) || c.bottleMl<50 || c.bottleMl>30000 || !Number.isInteger(c.packCount) || c.packCount<1 || c.packCount>120 || !['loose','owc','carton'].includes(c.packaging)) throw new Error('Invalid market format correction.');
+  if(Object.values(state.merchantReliability || {}).some(v=>!Number.isFinite(v) || v<0 || v>1)) throw new Error('Invalid merchant reliability.');
+  for(const r of state.market) if(r.marketSchema===1) {
+    if(!['CONFIRMED_IN_STOCK','LIKELY_IN_STOCK','PRE_ARRIVAL','FUTURES','OUT_OF_STOCK','SOLD','EXPIRED','UNKNOWN','ACTIVE_AUCTION'].includes(r.availabilityStatus) || typeof r.availabilityVerified!=='boolean' || !Number.isFinite(r.merchantConfidence) || r.merchantConfidence<0 || r.merchantConfidence>1 || !Number.isFinite(r.verificationConfidence) || r.verificationConfidence<0 || r.verificationConfidence>1 || (r.verifiedAt && !Number.isFinite(Date.parse(r.verifiedAt)))) throw new Error('Invalid verified market offer.');
+    safeURL(r.offerURL);safeURL(r.merchantURL);
   }
   return structuredClone(ensureVintageSources(state));
 }

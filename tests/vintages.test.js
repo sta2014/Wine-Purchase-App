@@ -134,7 +134,7 @@ test('critic and vintage scores and contributions are separate; filters combine 
   assert.notEqual(a.breakdown.find(b=>b.key==='quality').contribution,a.breakdown.find(b=>b.key==='vintage').contribution);
   const filtered=rankInventory(s,{minCritic:96,minVintageScore:95,vintageTier:'Exceptional|Outstanding'},now);assert.equal(filtered.length,1);assert.equal(filtered[0].rank,1);assert.equal(filtered[0].wine.appellation,'Barolo');
   assert.equal(rankInventory(s,{sort:'vintage'},now)[0].wine.appellation,'Barolo');
-  assert.ok(s.scoreHistory.at(-1).vintageEvidence.length);assert.equal(s.scoreHistory.at(-1).algorithmVersion,3);
+  assert.ok(s.scoreHistory.at(-1).vintageEvidence.length);assert.equal(s.scoreHistory.at(-1).algorithmVersion,4);
 });
 test('duplicate retrieval retains IDs/decisions and changes retain previous ratings',()=>{
   let s=ingest(inventory(),[chart({region:'Pauillac'})]);const id=s.vintages[0].id,wineId=s.listings[0].wineId;

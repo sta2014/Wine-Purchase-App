@@ -72,7 +72,7 @@ export function robotsAllowed(text, path) {
   return !best || best.key === 'allow';
 }
 export class JSONFeedAdapter {
-  constructor(request = requestText) { this.request = request; this.robots = new Map(); this.lastRequest = new Map(); }
+  constructor(request = requestText, parser = parseDataset) { this.parser=parser; this.request = request; this.robots = new Map(); this.lastRequest = new Map(); }
   async fetch(source, env = process.env, now = new Date()) {
     if (!source.enabled || source.method !== 'json' || !source.accessApproved) throw new Error('Source does not have approved automated access.');
     if (!credentialAvailable(source, env)) { const e = new Error('Server credential is missing or not bound to this approved destination.'); e.authRequired = true; throw e; }
@@ -95,8 +95,9 @@ export class JSONFeedAdapter {
     this.lastRequest.set(url.origin, +now);
     const result = await this.request(source.url, headers);
     if (result.status === 401 || result.status === 403) { const e = new Error('Source authentication or authorization was rejected.'); e.authRequired = true; throw e; }
+    if(result.status===429) { const error=new Error('Provider rate limit reached (HTTP 429); refresh deferred.');const wait=Number(result.headers['retry-after']);error.retryAfterMs=Number.isFinite(wait)?Math.min(7*86400000,Math.max(0,wait*1000)):Math.max(0,Math.min(7*86400000,Date.parse(result.headers['retry-after'])-+now)) || 3600000;throw error; }
     if (result.status !== 200 && result.status !== 304) throw new Error(`Source returned HTTP ${result.status}.`);
-    return { notModified: result.status === 304, dataset: result.status === 304 ? null : parseDataset(result.text), etag: result.headers.etag || source.etag, lastModified: result.headers['last-modified'] || source.lastModified };
+    return { notModified: result.status === 304, dataset: result.status === 304 ? null : this.parser(result.text,source,now), etag: result.headers.etag || source.etag, lastModified: result.headers['last-modified'] || source.lastModified };
   }
   fetchInventory(...args) { return this.fetch(...args); }
   fetchMarketPrices(...args) { return this.fetch(...args); }

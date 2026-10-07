@@ -1,3 +1,4 @@
+import { assessMarket, buildMarketIndex } from './market.js';
 import { assessVintage, VINTAGE_POLICY, wineGeography, buildVintageIndex, vintageCandidates } from './vintages.js';
 import { compositeCritics, qualityComponent, QUALITY_POLICY, publicationName, isCommunity } from './critics.js';
 import { matchWine, normalized } from './identity.js';
@@ -26,30 +27,17 @@ function matched(state, wine, item, format, inventorySourceId) {
 export function matchReview(state, listing, review) {
   return matched(state, state.wines[listing.wineId], review, review.formatSpecific === true, listing.sourceId);
 }
-export function analyzeListing(state, listing, now = new Date(), reviewIndex = null, vintageIndex = null) {
+export function analyzeListing(state, listing, now = new Date(), reviewIndex = null, vintageIndex = null, marketIndex = null) {
   const wine = state.wines[listing.wineId];
   const demo = Boolean(state.sources.find(s => s.id === listing.sourceId)?.isDemo);
   const active = new Set(state.sources.filter(s => s.enabled && Boolean(s.isDemo) === demo).map(s => s.id));
-  const exclusions = [], market = [], pendingMatches = [];
-  const observations = latest(state.market.filter(r => active.has(r.sourceId)), r => JSON.stringify([r.sourceId, r.merchant, r.wineId, r.currency, r.priceTerms, r.saleType]));
-  for (const observation of observations) {
-    const match = matched(state, wine, observation, true, listing.sourceId);
-    if (match.reviewable && !match.accepted && !state.decisions[observation.id]) pendingMatches.push({ observation, ...match });
-    if (!match.accepted) { if (state.wines[observation.wineId]?.canonicalProducer === wine.canonicalProducer) exclusions.push({ id: observation.id, source: observation.sourceName, reason: match.reasons.join('; ') }); continue; }
-    let reason = '';
-    if (!observation.isAvailable) reason = 'Latest quote unavailable';
-    else if (observation.currency !== listing.currency) reason = 'Currency differs; no verified FX conversion';
-    else if (observation.priceTerms !== listing.priceTerms) reason = 'Tax/shipping basis differs';
-    else if (observation.saleType !== 'retail') reason = 'Auction price excluded; buyer premium/fees not comparable';
-    else if (Date.parse(observation.observedAt) > +now || +now - Date.parse(observation.observedAt) > state.preferences.marketMaxAgeHours * 3600000) reason = 'Market quote stale or future-dated';
-    else if (observation.confidence < state.preferences.matchThreshold) reason = 'Source data confidence below threshold';
-    if (reason) exclusions.push({ id: observation.id, source: observation.sourceName, reason });
-    else market.push({ ...observation, matchConfidence: match.confidence, manuallyApproved: match.manuallyApproved });
+  const exclusions = [], pendingMatches = [];
+  const marketIntelligence=assessMarket(state,listing,now,marketIndex), marketEvidence=marketIntelligence.offers;
+  const referencePrice=marketIntelligence.referencePrice,discount=marketIntelligence.discount;
+  for(const candidate of marketIntelligence.candidates) {
+    if(!candidate.accepted) exclusions.push({id:candidate.id,source:candidate.sourceName,reason:candidate.reasons.join('; ')});
+    if(candidate.matchClass==='MEDIUM' && !state.decisions[candidate.id]) pendingMatches.push({observation:candidate,confidence:candidate.matchConfidence,reasons:candidate.reasons,reviewable:true});
   }
-  // One current observation per merchant avoids duplicating a merchant through multiple feeds.
-  const marketEvidence = latest(market, r => normalized(r.merchant));
-  const referencePrice = marketEvidence.length ? median(marketEvidence.map(r => r.unitPrice)) : null;
-  const discount = referencePrice == null ? null : (referencePrice - listing.unitPrice) / referencePrice;
   const reviewCandidates = (reviewIndex?.get(reviewIndexKey(wine)) || (reviewIndex ? [] : state.reviews)).filter(r => active.has(r.sourceId));
   const reviews = [];
   for (const r of reviewCandidates) {
@@ -73,8 +61,8 @@ export function analyzeListing(state, listing, now = new Date(), reviewIndex = n
   const drinkNow = windows.length ? windows.some(r => r.drinkFrom <= year && r.drinkTo >= year) : null;
   const windowConflict = windows.length > 1 && windows.some(r => r.drinkFrom <= year && r.drinkTo >= year) && windows.some(r => r.drinkFrom > year || r.drinkTo < year);
   const staleInventory = +now - Date.parse(listing.observedAt) > state.preferences.inventoryMaxAgeHours * 3600000;
-  const values = { value: discount == null ? null : clamp(discount / .4 * 100), quality: criticComponent, vintage: vintageComponent, window: drinkNow == null ? null : windowConflict ? 50 : drinkNow ? 100 : 0,
-    confidence: marketEvidence.length ? Math.min(wine.identityConfidence, ...marketEvidence.map(r => Math.min(r.matchConfidence, r.confidence))) * 100 : null };
+  const values = { value: marketIntelligence.component, quality: criticComponent, vintage: vintageComponent, window: drinkNow == null ? null : windowConflict ? 50 : drinkNow ? 100 : 0,
+    confidence: marketIntelligence.confidence==null?null:marketIntelligence.confidence*100 };
   const weights = state.preferences.weights;
   const totalWeight = Object.values(weights).reduce((sum, w) => sum + Number(w), 0);
   const breakdown = Object.entries(values).map(([key, value]) => ({ key, value, weight: Number(weights[key] ?? 0), neutral: ['quality','vintage'].includes(key) && value == null, contribution: (value == null ? key === 'quality' ? QUALITY_POLICY.neutral : key === 'vintage' ? VINTAGE_POLICY.neutral : 0 : value) * Number(weights[key] ?? 0) / totalWeight }));
@@ -92,16 +80,16 @@ export function analyzeListing(state, listing, now = new Date(), reviewIndex = n
   const preferred = state.preferences.preferredRegions.map(normalized).includes(normalized(wine.region));
   // Preference fit is disclosed, capped, and never substitutes for missing evidence.
   const preferenceBonus = preferred ? 5 * coverage : 0;
-  return { listing, wine, referencePrice, discount, quality, criticComponent, criticComposite, criticStatus, vintage, vintageComponent, vintageIntelligence, drinkNow, windows, professional, community: reviews.filter(r => r.kind === 'community'), assessments, marketEvidence, exclusions, pendingMatches, breakdown, coverage,
+  return { listing, wine, referencePrice, discount, marketIntelligence, quality, criticComponent, criticComposite, criticStatus, vintage, vintageComponent, vintageIntelligence, drinkNow, windows, professional, community: reviews.filter(r => r.kind === 'community'), assessments, marketEvidence, exclusions, pendingMatches, breakdown, coverage,
     score: staleInventory ? 0 : clamp(score + preferenceBonus), preferenceBonus, staleInventory, warnings,
     recommendation: staleInventory ? 'Confirm stale inventory' : coverage < .5 ? 'Research before buying' : discount != null && discount >= .1 && quality != null && quality >= 90 ? 'Compelling opportunity' : discount != null && discount < 0 ? 'Above observed market' : 'Consider with context' };
 }
 const reviewIndexKey = wine => JSON.stringify([wine.canonicalProducer || wine.beverageId, wine.vintage ?? wine.vintageKind ?? 'unknown']);
 export function rankInventory(state, filters = {}, now = new Date()) {
   const active = new Set(state.sources.filter(s => s.enabled).map(s => s.id));
-  const reviewIndex = new Map(), vintageIndex = buildVintageIndex(state.vintages);
+  const reviewIndex = new Map(), vintageIndex = buildVintageIndex(state.vintages), marketIndex=buildMarketIndex(state.market);
   for(const r of state.reviews) { const other=r.wine || state.wines[r.wineId]; if(!other) continue; const producer=reviewIndexKey(other); if(!reviewIndex.has(producer)) reviewIndex.set(producer,[]); reviewIndex.get(producer).push(r); }
-  return filterRankedInventory(state.listings.filter(l=>active.has(l.sourceId)).map(l=>analyzeListing(state,l,now,reviewIndex,vintageIndex)),filters);
+  return filterRankedInventory(state.listings.filter(l=>active.has(l.sourceId)).map(l=>analyzeListing(state,l,now,reviewIndex,vintageIndex,marketIndex)),filters);
 }
 const geoKeyForFilter = normalized;
 export function filterRankedInventory(analyses, filters = {}) {
@@ -126,10 +114,16 @@ export function filterRankedInventory(analyses, filters = {}) {
     if(filters.appellation && geoKeyForFilter(a.vintageIntelligence.geography.appellation)!==geoKeyForFilter(filters.appellation)) return false;
     if(filters.vintageTier && !(Array.isArray(filters.vintageTier)?filters.vintageTier:filters.vintageTier.split('|')).includes(a.vintageIntelligence.tier)) return false;
     if(filters.vintageConfidence && !['Low','Medium','High','Very High'].slice(['Low','Medium','High','Very High'].indexOf(filters.vintageConfidence)).includes(a.vintageIntelligence.confidenceLabel)) return false;
+    for(const [key,value] of [['minDollarDiscount',a.marketIntelligence.dollarDiscount],['minOffers',a.marketIntelligence.offerCount]]) if(filters[key]!=='' && filters[key]!=null && (value==null || value<Number(filters[key]))) return false;
+    if(filters.belowMarket && !(a.discount>0)) return false;
+    if(filters.currentComps && !a.marketEvidence.length) return false;
+    if(filters.marketConfidence && !['Low','Medium','High','Very High'].slice(['Low','Medium','High','Very High'].indexOf(filters.marketConfidence)).includes(a.marketIntelligence.confidenceLabel)) return false;
     if (filters.drinkNow && a.drinkNow !== true) return false;
     return true;
   });
   const sort = filters.sort ?? 'opportunity';
+  const marketSort={discount:a=>a.discount,dollarDiscount:a=>a.marketIntelligence.dollarDiscount,marketLow:a=>a.marketIntelligence.lowestPrice,marketMedian:a=>a.referencePrice,marketOffers:a=>a.marketIntelligence.offerCount,marketConfidence:a=>a.marketIntelligence.confidence,marketContribution:a=>a.breakdown.find(b=>b.key==='value').contribution};
+  if(marketSort[sort]) { const get=marketSort[sort],ascending=['marketLow','marketMedian'].includes(sort); rows.sort((a,b)=>get(a)==null?(get(b)==null?b.score-a.score:1):get(b)==null?-1:(ascending?get(a)-get(b):get(b)-get(a)) || b.score-a.score); return rows.map((a,i)=>({...a,rank:i+1})); }
   if(['vintage','vintageTier','vintageContribution'].includes(sort)) { rows.sort((a,b)=>(sort==='vintageContribution'?b.breakdown.find(x=>x.key==='vintage').contribution-a.breakdown.find(x=>x.key==='vintage').contribution:sort==='vintageTier'?(a.vintage==null?99:VINTAGE_POLICY.tiers.findIndex(([t])=>t===a.vintageIntelligence.tier))-(b.vintage==null?99:VINTAGE_POLICY.tiers.findIndex(([t])=>t===b.vintageIntelligence.tier)):(b.vintage ?? -1)-(a.vintage ?? -1)) || b.score-a.score); return rows.map((a,i)=>({...a,rank:i+1})); }
   rows.sort(sort === 'price' ? (a, b) => a.listing.unitPrice - b.listing.unitPrice : sort === 'quality' ? (a, b) => (b.quality ?? -1) - (a.quality ?? -1) : (a, b) => b.score - a.score || b.coverage - a.coverage || a.listing.unitPrice - b.listing.unitPrice || a.listing.id.localeCompare(b.listing.id));
   return rows.map((a, i) => ({ ...a, rank: i + 1 }));
@@ -142,5 +136,7 @@ export function validatePreferences(input) {
   for (const k of ['marketMaxAgeHours', 'inventoryMaxAgeHours']) if (!Number.isFinite(Number(p[k])) || Number(p[k]) < 1 || Number(p[k]) > 8760) throw new Error('Freshness limits must be 1–8760 hours.');
   if (!Number.isFinite(Number(p.matchThreshold)) || Number(p.matchThreshold) < .95 || Number(p.matchThreshold) > 1) throw new Error('Automatic match threshold must be .95–1.');
   if (!Array.isArray(p.preferredRegions) || p.preferredRegions.length > 30 || p.preferredRegions.some(r => typeof r !== 'string' || r.length > 100)) throw new Error('Invalid preferred regions.');
+  if(p.marketScope && !['US','worldwide'].includes(p.marketScope)) throw new Error('Market scope must be US or worldwide.');
+  if(p.baseCurrency && !Intl.supportedValuesOf('currency').includes(p.baseCurrency)) throw new Error('Invalid comparison currency.');
   return p;
 }

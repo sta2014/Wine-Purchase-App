@@ -1,8 +1,9 @@
+import { StructuredMerchantAdapter } from './market-adapters.js';
 import { ingestDataset } from '../src/engine/ingestion.js';
 import { sourceStatus } from '../src/engine/sources.js';
 import { JSONFeedAdapter } from './adapters.js';
 export class RefreshService {
-  constructor(database, { adapter = new JSONFeedAdapter(), env = process.env, clock = () => new Date() } = {}) { this.database = database; this.adapter = adapter; this.env = env; this.clock = clock; this.running = false; }
+  constructor(database, { adapter = new JSONFeedAdapter(), env = process.env, clock = () => new Date() } = {}) { this.structuredAdapter=new StructuredMerchantAdapter(); this.database = database; this.adapter = adapter; this.env = env; this.clock = clock; this.running = false; }
   async run(force = false, category = null) {
     if (this.running) return { skipped: 'Refresh already running' };
     this.running = true;
@@ -11,15 +12,19 @@ export class RefreshService {
       const candidates = this.database.load().sources;
       for (const s of candidates) {
         const now = this.clock();
-        if ((category && s.category !== category) || !s.enabled || s.method !== 'json' || !s.accessApproved || !s.url || (!force && s.nextDue && Date.parse(s.nextDue) > +now)) continue;
+        if ((category && s.category !== category) || !s.enabled || !['json','structured'].includes(s.method) || !s.accessApproved || !s.url || (!force && s.nextDue && Date.parse(s.nextDue) > +now)) continue;
+        if(s.rateLimitUntil && Date.parse(s.rateLimitUntil)>+now) {outcomes.push({sourceId:s.id,status:'Provider rate limit: retry deferred'});continue;}
+        if(s.category==='market' && force && s.lastChecked && !s.error && +now-Date.parse(s.lastChecked)<60000) {outcomes.push({sourceId:s.id,status:'Recently checked; wait one minute before forcing another market request'});continue;}
         try {
-          const result = await (s.category==='vintage' && this.adapter.fetchVintageInformation ? this.adapter.fetchVintageInformation(s,this.env,now) : this.adapter.fetch(s, this.env, now));
+          // A deliberate stock recheck must receive a body, not merely validate cached transport.
+          const requestSource=s.category==='market' && (force || this.database.load().market.some(r=>r.sourceId===s.id && (!r.verifiedAt || +now-Date.parse(r.verifiedAt)>(r.maxAgeHours || 48)*3600000)))?{...s,etag:'',lastModified:''}:s;
+          const result = await (s.category==='market' && s.method==='structured' ? this.structuredAdapter.fetchMarketPrices(requestSource,this.env,now) : s.category==='market' && this.adapter.fetchMarketPrices ? this.adapter.fetchMarketPrices(requestSource,this.env,now) : s.category==='vintage' && this.adapter.fetchVintageInformation ? this.adapter.fetchVintageInformation(s,this.env,now) : this.adapter.fetch(s, this.env, now));
           let state = this.database.load();
           const current = state.sources.find(x => x.id === s.id);
           if (!current?.enabled || current.url !== s.url || current.method !== s.method || !current.accessApproved) { outcomes.push({ sourceId: s.id, status: 'Configuration changed; response discarded' }); continue; }
           if (!result.notModified) state = ingestDataset(state, s.id, result.dataset, now.toISOString());
           const source = state.sources.find(x => x.id === s.id);
-          Object.assign(source, { etag: result.etag, lastModified: result.lastModified, lastChecked: now.toISOString(), lastSuccess: now.toISOString(), nextDue: new Date(+now + source.refreshHours * 3600000).toISOString(), failures: 0, error: '', status: 'Active' });
+          Object.assign(source, { etag: result.etag, lastModified: result.lastModified, lastChecked: now.toISOString(), lastSuccess: now.toISOString(), nextDue: new Date(+now + source.refreshHours * 3600000).toISOString(), failures: 0, error: '', rateLimitUntil:null,status: 'Active' });
           if (result.notModified) {
             state.runs.push({ id: crypto.randomUUID(), sourceId: s.id, at: now.toISOString(), status: 'not_modified', count: 0 });
             // A 304 proves transport freshness, not a newer price or inventory observation.
@@ -32,7 +37,8 @@ export class RefreshService {
           if (!source || !source.enabled) continue;
           source.failures++; source.error = error.authRequired ? 'Authentication Required' : error.message.replace(/https?:\/\/\S+/g, '[endpoint]');
           source.status = error.authRequired ? 'Authentication Required' : 'Error'; source.lastChecked = now.toISOString();
-          source.nextDue = new Date(+now + Math.min(24, Math.pow(2, source.failures - 1)) * 3600000).toISOString();
+          source.nextDue = new Date(+now + Math.max(error.retryAfterMs || 0, Math.min(24, Math.pow(2, source.failures - 1)) * 3600000)).toISOString();
+          if(error.retryAfterMs) source.rateLimitUntil=source.nextDue;
           state.runs.push({ id: crypto.randomUUID(), sourceId: s.id, at: now.toISOString(), status: source.status, error: source.error }); state.revision++;
           this.database.save(state); outcomes.push({ sourceId: s.id, status: source.status, error: source.error });
         }

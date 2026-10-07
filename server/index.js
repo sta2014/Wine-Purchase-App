@@ -1,3 +1,4 @@
+import { MarketLookupService } from './market.js';
 import { CriticLookupService } from './critics.js';
 import { VintageLookupService } from './vintages.js';
 import { createServer } from 'node:http';
@@ -12,8 +13,9 @@ import { sourceStatus } from '../src/engine/sources.js';
 import { credentialAvailable } from './adapters.js';
 import { WebResearchService } from './research.js';
 
-export function createEngineServer({ database = new EngineDatabase(process.env.WINE_DB_FILE || '.local/wine-engine.sqlite'), token = process.env.ENGINE_ACCESS_TOKEN || '', origins = (process.env.WINE_ALLOWED_ORIGINS || '').split(',').filter(Boolean), refresh = new RefreshService(database), research = new WebResearchService(), staticDir = 'dist' } = {}) {
+export function createEngineServer({ database = new EngineDatabase(process.env.WINE_DB_FILE || '.local/wine-engine.sqlite'), token = process.env.ENGINE_ACCESS_TOKEN || '', origins = (process.env.WINE_ALLOWED_ORIGINS || '').split(',').filter(Boolean), refresh = new RefreshService(database), research = new WebResearchService(), marketLookup = new MarketLookupService(database,refresh), staticDir = 'dist' } = {}) {
   const critics = new CriticLookupService(database, refresh);
+  const market = marketLookup;
   const vintages = new VintageLookupService(database, refresh);
   const server = createServer(async (req, res) => {
     const origin = req.headers.origin;
@@ -55,6 +57,7 @@ export function createEngineServer({ database = new EngineDatabase(process.env.W
       for await (const chunk of req) { bytes += chunk.length; if (bytes > 10 * 1024 * 1024) return send(413, { error: 'Request exceeds 10 MB.' }); chunks.push(chunk); }
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
       if (url.pathname === '/api/critics') return send(200, await critics.lookup(body.wineId, body.force === true));
+      if (url.pathname === '/api/market') return send(200, await market.lookup(body.wineId, body.force === true));
       if (url.pathname === '/api/vintages') return send(200, await vintages.lookup(body.wineId, body.force === true));
       if (url.pathname === '/api/research') {
         const state = database.load(), wine = state.wines[body.wineId];

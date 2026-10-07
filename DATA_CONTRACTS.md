@@ -2,7 +2,7 @@
 
 ## Imports and canonical identity
 
-Excel (.xlsx) imports read multiple worksheets locally, detect a likely header, and require a column-mapping preview before ingestion. Headers, last data row, price/package basis, and missing-column defaults can be adjusted. File limit is 10 MB, decompressed ZIP limit 64 MB, at most 50 sheets, 10,000 data rows, and 200 columns. Formulas and macros are never executed. Older .xls is rejected with Save As instructions. The original Flickinger workbook layout has not been independently verified; a synthetic multi-sheet XLSX fixture validates the import path.
+Excel (.xlsx) imports read multiple worksheets locally, detect a likely header, and require a column-mapping preview before ingestion. Headers, last data row, price/package basis, and missing-column defaults can be adjusted. File limit is 10 MB, decompressed ZIP limit 64 MB, at most 50 sheets, 10,000 data rows, and 200 columns. Formulas and macros are never executed. Older .xls is rejected with Save As instructions. The private reference Flickinger workbook is tested end to end: 8,648 listings and 4,346 retailer-reported critic facts; its blank fourth header is mapped to wine names.
 
 JSON accepts a row array or `{ "rows": [...], "completeSnapshot": true }`. CSV requires unique headers and data rows. All rows validate before committing. A complete inventory snapshot retires missing listings; partial imports preserve them. Empty inventory needs an explicitly complete JSON snapshot. Stable unique `external_id`/SKU values identify separate offers for the same wine.
 
@@ -10,7 +10,7 @@ Repeated retailer IDs and repeated wines without IDs are accepted as separate in
 
 Identity fields: `raw_title`, `producer`, `cuvee`, `vineyard`, `appellation`, `region`, `country`, `vintage`, `bottle_ml`, `pack_count`, `packaging`, `type`, `classification`, `designation`. Packaging is `loose`, `carton`, or `owc`. Canonical IDs encode producer/cuvée/vineyard/appellation/vintage/classification/designation plus bottle volume, count, and packaging. Accents, punctuation, abbreviations, curated aliases, vintage, bottle size, and packs normalize deterministically. Raw titles and structured fields remain available. Sparse enrichment never erases existing inventory metadata.
 
-Market matching requires an identified producer, matching vintage and cuvée identity, verified volume, identical pack count/packaging, no known identity conflicts, and adequate confidence. Automatic threshold defaults to 0.95. Exact canonical matches score 1.0; fuzzy candidates score 0.94 or 0.76 and require review. Hard conflicts cannot be approved. Professional reviews/windows apply to the beverage independently of package size, while rejecting known type/identity conflicts. False matches take precedence over completeness.
+Market matching requires an identified producer, matching vintage and cuvée identity, verified volume, identical bottle volume and packaging (loose-bottle pack counts can normalize; original-case counts must match), no known identity conflicts, and adequate confidence. Automatic threshold defaults to 0.95. Exact canonical matches score 1.0; fuzzy candidates score 0.94 or 0.76 and require review. Hard conflicts cannot be approved. Professional reviews/windows apply to the beverage independently of package size, while rejecting known type/identity conflicts. False matches take precedence over completeness.
 
 Every observation retains source ID/name, URL/reference when supplied, retrieval/observation timestamps, raw title, confidence, parsing warnings, and wine ID when applicable. Missing timestamps default to import time; invalid/materially future dates fail. Inventory history, external observations, runs, match decisions, and opportunity snapshots remain separate. Opportunity snapshots retain weights and algorithm version. Preferences never rewrite past snapshots.
 
@@ -39,23 +39,23 @@ The importer reads these formats from the wine title or a mapped package-format 
 
 Prices must be positive; quantities are nonnegative integer **packages**, unknown if absent. `price_basis` defaults to `package`; `bottle` is explicit. Unit price = package price / pack count; normalized per-750ml = unit price × 750 / bottle_ml. Normalization does not make different formats tradable equivalents. Currency defaults to USD; other supported currencies are preserved without guessed FX.
 
-Tax/shipping bases are `unspecified`, `ex_tax`, `tax_included`, `landed`. Different bases/currencies cannot compare. Two unspecified bases allow an indicative comparison with an explicit warning, not an executable arbitrage claim. `sale_type=auction` observations are recorded but excluded from retail price comparison until a fee model exists.
+Tax/shipping bases are `unspecified`, `ex_tax`, `tax_included`, `landed`. Different tax bases/currencies cannot compare without documented tax normalization and a fresh traceable FX rate; originals are preserved. Two unspecified bases allow an indicative comparison with an explicit warning, not an executable arbitrage claim. `sale_type=auction` observations are recorded but excluded from retail price comparison until a fee model exists.
 
 Review scores may be numbers or ranges such as `94-96`. The lower bound drives scoring; the original scale/range stays recorded. Scores normalize arithmetically to /100, not a calibrated equivalence between critics. Scale defaults to 100. Reviews need a score or an ordered paired drinking window. Community scores do not enter professional quality. Vintage assessments require the same region, year, and type; none are generated from missing evidence.
 
-## Opportunity algorithm v1
+## Opportunity algorithm v4
 
-Market evidence uses the latest observation per source/merchant/wine/currency/terms/sale type, then one current observation per merchant across feeds. A latest unavailable quote suppresses its older available observation. Available, comparable, sufficiently confident quotes within the configured age limit (48 hours default) produce a median reference. Discount = (reference − asking) / reference.
+Market offers require explicit confirmed stock, last verification, stock evidence, eligible merchant reliability, exact beverage/bottle format, original packaging, freshness and provenance. Legacy assumed-available quotes remain stored but cannot drive current market values. Median and lowest use one lowest current offer per merchant after URL deduplication and robust outlier exclusion. A newer unavailable observation suppresses an older in-stock report across feeds. Default scope is US merchants, USD; unknown merchant location does not satisfy US scope. See [MARKET_INTELLIGENCE.md](MARKET_INTELLIGENCE.md) for the contract and complete method.
 
 | Component | Value /100 | Default weight |
 | --- | --- | --- |
-| Value | Discount / 0.40 × 100, capped 0–100 | 35 |
-| Quality | Mean matching professional score normalized to /100 | 35 |
-| Vintage | Mean matching regional assessment normalized to /100 | 10 |
+| Value | Piecewise current discount component multiplied by market confidence | 35 |
+| Quality | Publication-balanced professional composite through central quality anchors | 35 |
+| Vintage | Contextual professional assessment through central vintage anchors | 10 |
 | Window | 100 inside a supplied professional window, 0 outside, 50 when windows disagree | 10 |
-| Confidence | Minimum identity/match/source confidence across market evidence × 100 | 10 |
+| Confidence | Current market confidence × 100 | 10 |
 
-Score = sum(component × weight / total weights), capped at 100. Missing evidence contributes zero and reduces weighted coverage; other components are not inflated. Preferred regions add at most 5 × coverage points, disclosed separately. Stale inventory (48 hours default) scores zero with an availability warning. Low-confidence reviews/vintages are excluded. Minimum evidence filters reject unknowns. Ranks are reassigned within the selected subset; absolute scores remain comparable. Weights recalculate scores. This is a buying heuristic, not an investment-return forecast.
+Score = sum(component × weight / total weights), capped at 100. Missing critic/vintage components use neutral 50 with zero evidence coverage; other missing signals contribute zero. Missing market price remains null, never $0. Preferred regions add at most 5 × coverage points, disclosed separately. Stale inventory scores zero. Filters assign ranks within the selected subset without changing absolute component scores. Every opportunity snapshot preserves weights, algorithm version, critic/vintage evidence and accepted market offer prices/verification times. Historical snapshots are not rewritten. This is a purchasing comparison, not an investment-return forecast or guaranteed executable resale arbitrage.
 
 ## Source access
 
@@ -91,3 +91,7 @@ Critic rows support `publication` (or `critic`), `reviewer`, original `score` (n
 Inventory rows may additionally carry registered critic shorthand columns (`wa`, `vn`, `ws`, `js`, `jd`, `we`, `bh`, `jm`, `dc`, `jr`) or labeled `ratings` strings. Recognized publication aliases in CSV/Excel are accepted. `rating`/`score` text is only extracted as retailer critic evidence if it contains a professional publication label; an anonymous number is not a professional review. Unparseable rating cells create warnings and retain the inventory. Dataset `sourceReference` optionally identifies the authorized export file; all UI file imports supply its filename.
 
 Inventory datasets may explicitly set `skipInvalidPrices: true`. Browser imports enable this option by default, with an opt-out checkbox. Only price-validation failures are quarantined; all other validation remains atomic and other source categories remain strict. The import run retains `inputCount`, successful `count`, `rejectedPriceRows` (physical Excel row, original price/title/row and reason), and `snapshotDowngraded`. Complete-snapshot retirement is disabled when any price row is quarantined; an entirely unusable-price file fails unchanged. Spreadsheet rows carry `import_row` to disambiguate data-row numbers from worksheet row numbers.
+
+## Verified market extensions
+
+Use the extended market CSV template, Excel mapping, JSON or Market Intelligence → Add a verified merchant offer. Supply availability_status, availability_verified, verified_at, verification_method, verification_evidence, merchant_confidence, merchant_country, source/offer URL and ordinary wine/price fields. Optional FX/tax/shipping, auction metadata, source update time and provider freshness settings retain their originals. Unknown stock, stale quotes, pre-arrival, futures, active/historical auction records and search leads remain inspectable but excluded from current retail valuation. Source method structured parses only explicit merchant schema.org Product/Offer records after access approval and robots checks; method json handles authorized merchant/aggregator feeds. No external market provider is operational by default. POST /api/market uses existing authentication and market-only refresh; it does not fetch static critic or vintage data.

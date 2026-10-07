@@ -8,7 +8,7 @@ import { demoState } from '../src/engine/demo.js';
 import { validateSource, sourceStatus } from '../src/engine/sources.js';
 
 const at = '2026-10-06T12:00:00.000Z', now = new Date(at);
-const row = (fields = {}) => ({ raw_title: 'Example Estate Reserve 2019 750ml', producer: 'Example Estate', cuvee: 'Reserve', vintage: 2019, bottle_ml: 750, pack_count: 1, packaging: 'loose', region: 'Example Bordeaux', country: 'France', type: 'Red', price: 80, currency: 'USD', available_quantity: 4, price_terms: 'ex_tax', ...fields });
+const row = (fields = {}) => ({ raw_title: 'Example Estate Reserve 2019 750ml', producer: 'Example Estate', cuvee: 'Reserve', vintage: 2019, bottle_ml: 750, pack_count: 1, packaging: 'loose', region: 'Example Bordeaux', country: 'France', type: 'Red', price: 80, currency: 'USD', available_quantity: 4, price_terms: 'ex_tax', availability_status:'CONFIRMED_IN_STOCK', availability_verified:true, verified_at:at, verification_method:'manual_merchant_check',verification_evidence:'Synthetic test merchant record',merchant_confidence:1,merchant_country:'US',source_url:'https://synthetic.example/'+encodeURIComponent(fields.merchant || 'Retailer A')+'/'+encodeURIComponent(fields.external_id || fields.observed_at || ''), ...fields });
 const ingest = (state, sourceId, rows, time = at, completeSnapshot = false) => ingestDataset(state, sourceId, { rows, completeSnapshot }, time);
 const inventory = () => ingest(initialState(), 'flickinger', [row()]);
 const withMarket = (marketRows = [row({ price: 100, merchant: 'Retailer A' })]) => ingest(inventory(), 'market-import', marketRows);
@@ -143,13 +143,13 @@ test('partial snapshots preserve absent offers; complete snapshots retire them a
   assert.equal(state.history.filter(h => h.id === 'flickinger:a').length, 3);
   assert.equal(state.scoreHistory.filter(h => h.listingId === 'flickinger:a').length, 3);
 });
-test('package totals and per-bottle pricing normalize correctly without comparing different packages', () => {
+test('package totals normalize across bottle counts while bottle volume and packaging stay distinct', () => {
   let state = ingest(initialState(), 'flickinger', [row({ raw_title: 'Example Estate Reserve 2019 6x750ml', pack_count: 6, price: 480 })]);
   assert.equal(state.listings[0].unitPrice, 80); assert.equal(state.listings[0].pricePer750, 80);
   state = ingest(state, 'market-import', [row({ price: 120 })]);
-  assert.equal(rankInventory(state, {}, now)[0].referencePrice, null);
+  assert.equal(rankInventory(state, {}, now)[0].referencePrice, 120);
   state = ingest(state, 'market-import', [row({ raw_title: 'Example Estate Reserve 2019 6x750ml', pack_count: 6, price: 100, price_basis: 'bottle', merchant: 'Six-pack merchant' })]);
-  assert.equal(rankInventory(state, {}, now)[0].referencePrice, 100);
+  assert.equal(rankInventory(state, {}, now)[0].referencePrice, 110);
 });
 test('median market reference deduplicates merchants, preserves provenance, and calculates discount', () => {
   const state = withMarket([row({ price: 100, merchant: 'A', source_url: 'https://merchant.example/wine' }), row({ price: 120, merchant: 'B' }), row({ price: 10000, merchant: 'A', observed_at: '2026-10-05T12:00:00Z' })]);
