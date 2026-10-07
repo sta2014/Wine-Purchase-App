@@ -13,6 +13,43 @@ const ingest = (state, sourceId, rows, time = at, completeSnapshot = false) => i
 const inventory = () => ingest(initialState(), 'flickinger', [row()]);
 const withMarket = (marketRows = [row({ price: 100, merchant: 'Retailer A' })]) => ingest(inventory(), 'market-import', marketRows);
 
+test('non-vintage and unusual year values retain inventory with safe provenance instead of blocking a file', () => {
+  const values = ['NV', 'N.V.', 'Non-Vintage', 0, 9999, 1799, '2019/2020', new Date().getFullYear() + 5];
+  let state = ingest(initialState(), 'flickinger', [row({ external_id: 'valid' }), ...values.map((vintage, i) => row({ vintage, external_id: `odd-${i}` }))]);
+  assert.equal(state.listings.length, values.length + 1);
+  assert.equal(state.runs.at(-1).vintageWarningCount, 5);
+  for (const listing of state.listings.slice(1)) {
+    const wine = state.wines[listing.wineId];
+    assert.equal(wine.vintage, null); assert.ok(wine.rawVintage);
+    assert.equal(matchWine(identifyWine(row()), wine).automatic, false);
+  }
+  assert.equal(state.wines[state.listings[1].wineId].vintageKind, 'non-vintage');
+  const mv = identifyWine(row({ vintage: 'MV' })), spelled = identifyWine(row({ vintage: 'Multi-Vintage' }));
+  assert.equal(mv.vintageKind, 'multi-vintage'); assert.equal(mv.id, spelled.id);
+  assert.notEqual(mv.id, state.listings[1].wineId); assert.equal(mv.warnings.length, 0);
+  const blends = ingest(initialState(), 'flickinger', [row({ vintage: 'MV' }), row({ vintage: 'NV' })]);
+  assert.equal(blends.listings.length, 2); assert.equal(blends.runs[0].vintageWarningCount, 0);
+  assert.equal(validateBackup(blends).listings.length, 2);
+  assert.match(state.listings[4].warnings.join(' '), /0.*imported as unknown/);
+  assert.notEqual(state.listings[4].wineId, state.listings[5].wineId);
+  state = ingest(state, 'market-import', [row({ vintage: 0, price: 100 })]);
+  assert.equal(rankInventory(state, {}, now).find(r => r.listing.externalId === 'odd-3').referencePrice, null);
+  const restored = validateBackup(JSON.stringify(state));
+  assert.equal(restored.wines[state.listings[4].wineId].rawVintage, '0');
+  assert.equal(restored.listings.length, state.listings.length);
+  const corrupt = structuredClone(restored); corrupt.wines[state.listings[4].wineId].vintage = 0;
+  assert.throws(() => validateBackup(corrupt), /unresolved vintage/);
+});
+
+test('inferred future vintages are flagged and valid existing wine IDs stay unchanged', () => {
+  const future = identifyWine(row({ vintage: '', raw_title: `Example Estate Reserve ${new Date().getFullYear() + 5} 750ml` }));
+  assert.equal(future.vintage, null); assert.match(future.warnings.join(' '), /imported as unknown/);
+  assert.equal(identifyWine(row()).id, identifyWine(row({ vintage: '' })).id);
+  const old = inventory(); for (const wine of Object.values(old.wines)) { delete wine.rawVintage; delete wine.vintageKind; }
+  assert.equal(validateBackup(old).listings.length, 1);
+  assert.throws(() => ingest(inventory(), 'flickinger', [row({ vintage: 0, price: -1 })]));
+});
+
 test('canonical Château aliases and appellation abbreviations identify all four specified variants', () => {
   const names = ['Château Léoville Las Cases 2019', '2019 Leoville Las Cases', 'Ch. Leoville-Las-Cases 2019', 'Léoville Las Cases St-Julien 2019'];
   const wines = names.map(name => identifyWine({ name, bottle_ml: 750 }));
@@ -161,7 +198,9 @@ test('malformed engine backups reject missing sources, bad observations, and fal
   assert.throws(() => ingest(inventory(), 'market-import', [row({ currency: 'ZZZ' })]));
 });
 test('zero identity fields and contradictory producer or wooden-case titles cannot slip into price matching', () => {
-  for (const field of ['vintage', 'bottle_ml', 'pack_count']) assert.throws(() => identifyWine(row({ [field]: 0 })));
+  for (const field of ['bottle_ml', 'pack_count']) assert.throws(() => identifyWine(row({ [field]: 0 })));
+  const unknownYear = identifyWine(row({ vintage: 0 }));
+  assert.equal(unknownYear.vintage, null); assert.equal(matchWine(unknownYear, unknownYear).automatic, false);
   const owc = identifyWine(row({ raw_title: 'Example Estate Reserve 2019 750ml OWC', packaging: 'loose' }));
   assert.equal(matchWine(owc, identifyWine(row())).automatic, false);
   const wrong = identifyWine({ name: 'Château Margaux 2019 750ml', producer: 'Different estate', cuvee: 'Reserve' });

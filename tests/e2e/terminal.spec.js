@@ -161,6 +161,29 @@ test('direct Excel export previews sheets and columns before importing and survi
   expect(saved.listings[0].unitPrice).toBe(80); expect(saved.listings[0].packCount).toBe(3); expect(saved.listings[1].bottleMl).toBe(1500);
   await page.reload(); await expect(page.locator('.terminal-table tbody tr')).toHaveCount(2);
 });
+test('Excel rows with MV, NV, zero and out-of-range vintages import with visible warnings and survive reload', async ({ page }) => {
+  await page.getByRole('button', { name: 'Import data', exact: true }).click();
+  await page.getByLabel('Excel, CSV or JSON file').setInputFiles('tests/fixtures/unusual-vintages.xlsx');
+  await page.getByRole('button', { name: 'Validate and import', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm Excel import', exact: true }).click();
+  await expect(page.locator('#engine-dialog')).not.toBeVisible();
+  await expect(page.locator('#engine-notice')).toContainText('2 vintage values kept as unknown');
+  const rows = page.locator('#engine-results .terminal-table tbody tr');
+  await expect(rows).toHaveCount(4);
+  await expect(page.locator('.vintage-warning')).toHaveCount(2);
+  await expect(page.locator('#engine-results')).toContainText('Non-vintage (NV)');
+  await expect(page.locator('#engine-results')).toContainText('Multi-vintage (MV)');
+  const flagged = rows.filter({ hasText: 'import value: 0' });
+  await flagged.getByRole('button', { name: 'Explain', exact: true }).click();
+  await expect(page.locator('#engine-dialog')).toContainText('Vintage value “0”');
+  await expect(page.locator('#engine-dialog')).toContainText('imported as unknown');
+  await page.locator('#engine-dialog-close').click();
+  await page.reload();
+  await expect(rows).toHaveCount(4); await expect(page.locator('.vintage-warning')).toHaveCount(2);
+  const saved = JSON.parse(await page.evaluate(() => localStorage.getItem('wine-intelligence.v1')));
+  expect(saved.listings.map(l => l.price)).toEqual([480,240,190,360]);
+  expect(saved.wines[saved.listings[2].wineId].rawVintage).toBe('0');
+});
 test('Excel package formats display package prices and standard-volume equivalents without changing physical bottle counts', async ({ page }) => {
   await page.getByRole('button', { name: 'Import data', exact: true }).click();
   await page.getByLabel('Excel, CSV or JSON file').setInputFiles('tests/fixtures/package-formats.xlsx');

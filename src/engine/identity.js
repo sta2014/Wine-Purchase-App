@@ -42,13 +42,24 @@ export function parsePackageFormat(value = '') {
 export function packageSummary(wine) {
   return { physicalBottles: wine.packCount, bottleMl: wine.bottleMl, packageMl: wine.packCount * wine.bottleMl, standardBottleEquivalent: wine.packCount * wine.bottleMl / 750 };
 }
+function readVintage(row, years, warnings) {
+  const input = supplied(row.raw_vintage) ? row.raw_vintage : supplied(row.vintage) ? row.vintage : years.length === 1 ? years[0] : '';
+  const rawVintage = bounded(input, 'Vintage value');
+  if (!rawVintage) return { vintage: null, vintageKind: 'unknown', rawVintage: '' };
+  if (/^(?:nv|n\s*\.?\s*v\.?|non[\s-]*vintage)$/i.test(rawVintage)) return { vintage: null, vintageKind: 'non-vintage', rawVintage };
+  if (/^(?:mv|m\s*\.?\s*v\.?|multi[\s-]*vintage)$/i.test(rawVintage)) return { vintage: null, vintageKind: 'multi-vintage', rawVintage };
+  const vintage = /^\d{4}$/.test(rawVintage) ? Number(rawVintage) : null;
+  if (vintage != null && vintage >= 1800 && vintage <= new Date().getFullYear() + 1) return { vintage, vintageKind: 'year', rawVintage };
+  warnings.push(`Vintage value “${rawVintage}” is not a valid year (1800–${new Date().getFullYear() + 1}); imported as unknown. Confirm it before comparing prices.`);
+  return { vintage: null, vintageKind: 'unknown', rawVintage };
+}
 export function identifyWine(row, aliases = PRODUCERS) {
   const rawTitle = bounded(row.raw_title ?? row.name ?? row.wine, 'Wine title');
   if (!rawTitle) throw new Error('A wine title is required.');
   const warnings = [];
   const years = [...new Set(rawTitle.match(/\b(?:18|19|20)\d{2}\b/g) ?? [])];
   if (years.length > 1) warnings.push('Multiple vintage years in title; identity requires review.');
-  const vintage = supplied(row.vintage) ? number(row.vintage, 'Vintage', { min: 1800, max: new Date().getFullYear() + 1, integer: true }) : years.length === 1 ? Number(years[0]) : null;
+  const { vintage, vintageKind, rawVintage } = readVintage(row, years, warnings);
   if (vintage && years.length === 1 && Number(years[0]) !== vintage) warnings.push('Explicit vintage conflicts with title.');
   let title = normalized(rawTitle).replace(/\b(?:18|19|20)\d{2}\b/g, '').trim();
   const aliasKeys = Object.keys(aliases).sort((a, b) => b.length - a.length);
@@ -90,10 +101,12 @@ export function identifyWine(row, aliases = PRODUCERS) {
   const region = bounded(row.region, 'Region');
   const country = bounded(row.country, 'Country');
   const type = bounded(row.type || 'Unknown', 'Wine type');
-  const beverageKey = [canonicalProducer, normalized(cuvee), normalized(vineyard), normalized(appellation), vintage, normalized(classification), normalized(designation)];
+  // Distinct unresolved values must not collapse into one canonical wine.
+  const vintageKey = vintage ?? (rawVintage ? vintageKind !== 'unknown' ? vintageKind : `unresolved:${rawVintage}` : null);
+  const beverageKey = [canonicalProducer, normalized(cuvee), normalized(vineyard), normalized(appellation), vintageKey, normalized(classification), normalized(designation)];
   const beverageId = identifier(beverageKey);
   const id = identifier([...beverageKey, bottleMl, packCount, packaging]);
-  return { id, beverageId, rawTitle, producer, canonicalProducer, cuvee, vineyard, appellation, region, country, vintage, bottleMl, packCount, packaging, type, classification, designation, formatKnown, warnings,
+  return { id, beverageId, rawTitle, producer, canonicalProducer, cuvee, vineyard, appellation, region, country, vintage, vintageKind, rawVintage, bottleMl, packCount, packaging, type, classification, designation, formatKnown, warnings,
     identityConfidence: warnings.length ? .7 : producer && vintage ? 1 : .8 };
 }
 function similarity(a, b) {

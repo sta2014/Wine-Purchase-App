@@ -136,7 +136,7 @@ export function ingestDataset(state, sourceId, dataset, now = new Date().toISOSt
       next.history.push({ ...listing, event: 'absent_from_complete_snapshot', retrievedAt: now });
     }
   }
-  next.runs.push({ id: runId, sourceId, category: source.category, at: now, count: rows.length, completeSnapshot: Boolean(dataset.completeSnapshot), status: 'success' });
+  next.runs.push({ id: runId, sourceId, category: source.category, at: now, count: rows.length, vintageWarningCount: normalized.filter(r => r.wine?.vintageKind === 'unknown' && r.wine.rawVintage).length, completeSnapshot: Boolean(dataset.completeSnapshot), status: 'success' });
   const saved = next.sources.find(s => s.id === sourceId);
   saved.lastChecked = now; saved.lastSuccess = now; saved.error = ''; saved.failures = 0;
   saved.nextDue = new Date(Date.parse(now) + saved.refreshHours * 3600000).toISOString();
@@ -156,7 +156,9 @@ export function validateBackup(raw) {
   for (const key of ['listings', 'market', 'reviews', 'vintages', 'history', 'scoreHistory', 'runs']) if (!Array.isArray(state[key]) || state[key].length > 100000) throw new Error(`Invalid ${key} data.`);
   state.preferences = validatePreferences(state.preferences);
   for (const [key, wine] of Object.entries(state.wines)) {
-    if (!wine || key !== wine.id || !Array.isArray(wine.warnings) || !Number.isFinite(wine.identityConfidence) || wine.id !== identifyWine({ raw_title: wine.rawTitle, producer: wine.producer, cuvee: wine.cuvee, vineyard: wine.vineyard, appellation: wine.appellation, vintage: wine.vintage, bottle_ml: wine.bottleMl, pack_count: wine.packCount, packaging: wine.packaging, classification: wine.classification, designation: wine.designation }).id) throw new Error('Backup contains inconsistent wine identities.');
+    if (!wine || key !== wine.id || !Array.isArray(wine.warnings) || !Number.isFinite(wine.identityConfidence)) throw new Error('Backup contains inconsistent wine identities.');
+    const rebuilt = identifyWine({ raw_title: wine.rawTitle, producer: wine.producer, cuvee: wine.cuvee, vineyard: wine.vineyard, appellation: wine.appellation, vintage: wine.vintage, raw_vintage: wine.rawVintage, bottle_ml: wine.bottleMl, pack_count: wine.packCount, packaging: wine.packaging, classification: wine.classification, designation: wine.designation });
+    if (rebuilt.id !== wine.id || rebuilt.vintage !== wine.vintage || (wine.vintageKind && rebuilt.vintageKind !== wine.vintageKind)) throw new Error('Backup contains inconsistent wine identities or an unresolved vintage stored as a year.');
   }
   for (const item of [...state.listings, ...state.market, ...state.reviews, ...state.history, ...state.vintages]) {
     if (!item || !sourceIds.has(item.sourceId) || (item.wineId && !state.wines[item.wineId]) || !Number.isFinite(Date.parse(item.observedAt)) || !Number.isFinite(item.confidence) || item.confidence < 0 || item.confidence > 1 || !Array.isArray(item.warnings)) throw new Error('Backup contains an invalid observation.');

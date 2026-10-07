@@ -12,6 +12,8 @@ Market matching requires an identified producer, matching vintage and cuvée ide
 
 Every observation retains source ID/name, URL/reference when supplied, retrieval/observation timestamps, raw title, confidence, parsing warnings, and wine ID when applicable. Missing timestamps default to import time; invalid/materially future dates fail. Inventory history, external observations, runs, match decisions, and opportunity snapshots remain separate. Opportunity snapshots retain weights and algorithm version. Preferences never rewrite past snapshots.
 
+Wine imports accept `NV`, `N.V.`, and `non-vintage` as non-vintage, and `MV`, `M.V.`, and `multi-vintage` as multi-vintage. Both are valid, separately labeled wine identities with a null year. Other values outside 1800 through next calendar year, zero placeholders, and malformed years are retained as unknown rather than blocking inventory import. `rawVintage` preserves the displayed value, `vintageKind` distinguishes year/non-vintage/multi-vintage/unknown, and warnings identify unresolved values. Canonical IDs keep distinct unresolved values separate; valid existing wine IDs are unchanged. Unknown/non-vintage/multi-vintage wines cannot automatically match year-specific market quotes or critic reviews. Import notices report unresolved vintage counts; each wine's Explain view retains the warning. Regional vintage assessments still require a valid year. Other invalid fields continue to reject imports atomically.
+
 ## Category fields
 
 Each listing format describes **one purchasable package**. Physical bottles and equivalent standard 750ml bottles are separate measures:
