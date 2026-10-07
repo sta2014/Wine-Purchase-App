@@ -36,3 +36,5 @@
 - The initial Docker npm build could not resolve the package registry from its isolated network; the deployment image now consumes the frontend built with the host's verified locked install and needs no runtime npm dependencies. Restrictive source-file permissions were explicitly made readable by the unprivileged container user.
 - GitHub Pages publishes the manual terminal, not an unattended server. A hosted backend, permitted source endpoints, and required licenses remain external prerequisites.
 - Flickinger public rules could not be checked because the environment proxy denied that domain. Domain additions are saved in the environment draft; saving the draft does not change the running network. No retailer scrape was performed.
+
+Professional critic Phase 1 extends the audit baseline described above. See [CRITIC_SCORING.md](CRITIC_SCORING.md) for the updated composite/quality policy, neutral missing-data treatment, ingestion, corrections, provider access limits and verification results.

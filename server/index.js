@@ -1,3 +1,4 @@
+import { CriticLookupService } from './critics.js';
 import { createServer } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -11,6 +12,7 @@ import { credentialAvailable } from './adapters.js';
 import { WebResearchService } from './research.js';
 
 export function createEngineServer({ database = new EngineDatabase(process.env.WINE_DB_FILE || '.local/wine-engine.sqlite'), token = process.env.ENGINE_ACCESS_TOKEN || '', origins = (process.env.WINE_ALLOWED_ORIGINS || '').split(',').filter(Boolean), refresh = new RefreshService(database), research = new WebResearchService(), staticDir = 'dist' } = {}) {
+  const critics = new CriticLookupService(database, refresh);
   const server = createServer(async (req, res) => {
     const origin = req.headers.origin;
     const host = req.headers.host || '';
@@ -50,6 +52,7 @@ export function createEngineServer({ database = new EngineDatabase(process.env.W
       let bytes = 0; const chunks = [];
       for await (const chunk of req) { bytes += chunk.length; if (bytes > 10 * 1024 * 1024) return send(413, { error: 'Request exceeds 10 MB.' }); chunks.push(chunk); }
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      if (url.pathname === '/api/critics') return send(200, await critics.lookup(body.wineId, body.force === true));
       if (url.pathname === '/api/research') {
         const state = database.load(), wine = state.wines[body.wineId];
         if (!wine) return send(404, { error: 'Wine not found. Import inventory first.' });
@@ -62,7 +65,8 @@ export function createEngineServer({ database = new EngineDatabase(process.env.W
         if (body.expectedRevision !== current.revision) return send(409, { error: 'Engine changed in another session. Reload and try again.' });
         const state = applyAction(current, body.action);
         database.save(state);
-        return send(200, state);
+        if (body.action?.type === 'import' && state.sources.find(s=>s.id===body.action.sourceId)?.category==='inventory') await critics.lookupMany(state.listings.filter(l=>l.isAvailable && l.sourceId===body.action.sourceId).map(l=>l.wineId));
+        return send(200, database.load());
       }
       return send(404, { error: 'API route not found.' });
     } catch (error) { return send(400, { error: error.message }); }

@@ -321,3 +321,41 @@ test('Excel package formats display package prices and standard-volume equivalen
   await page.getByLabel('Physical bottles / package', { exact: true }).fill('1');
   await expect(rows).toHaveCount(2);
 });
+
+// All scores below are synthetic test inputs, never assertions about real wines.
+test('critic evidence, independent manual verification, conflicts and filters persist', async ({ page }) => {
+  await importRows(page, 'flickinger', [{ ...wine, price:80, WA:'96+', VM:95 }]);
+  const table=page.locator('#engine-results'); await expect(table).toContainText('95.5'); await expect(table).toContainText('awaiting independent verification');
+  await page.getByRole('button',{name:'Professional critics',exact:true}).click();
+  const dialog=page.locator('#engine-dialog'); await expect(dialog).toContainText('96+'); await expect(dialog).toContainText('Retailer reported — unverified');
+  const form=page.locator('#critic-review-form'); await form.getByLabel('Publication',{exact:true}).fill('Wine Advocate'); await form.getByLabel('Original score',{exact:true}).fill('94');
+  await form.getByLabel('Source reference',{exact:true}).fill('SYNTHETIC licensed test reference');
+  await form.getByRole('checkbox').check(); await form.getByRole('button',{name:'Save review and re-rank'}).click(); await expect(dialog).not.toBeVisible();
+  await expect(table).toContainText('94.5'); await expect(table).toContainText('1 verified reviews');
+  await page.getByLabel('With independently verified reviews',{exact:true}).check(); await expect(table.locator('tbody tr')).toHaveCount(1);
+  await page.getByRole('combobox',{name:'Professional publication',exact:true}).selectOption('Wine Advocate');
+  await page.getByRole('button',{name:'Professional critics',exact:true}).click(); await expect(dialog).toContainText('differs from verified review');
+  await dialog.getByRole('button',{name:'Close',exact:true}).click(); await page.reload();
+  const saved=JSON.parse(await readEngineRaw(page)); expect(saved.reviews).toHaveLength(3); expect(saved.reviews.filter(r=>r.verified)).toHaveLength(1);
+  await importRows(page,'flickinger',[{...wine,price:80,WA:'96+',VM:95}]); expect(JSON.parse(await readEngineRaw(page)).reviews).toHaveLength(3);
+  await page.getByRole('button',{name:'Explain',exact:true}).click(); await expect(dialog).toContainText('Professional critic calculation'); await expect(dialog).toContainText('critic contribution');
+});
+
+test('Excel critic columns survive mapping, uncertain cells do not block inventory, and packages remain intact', async ({ page }) => {
+  await page.getByRole('button',{name:'Import data',exact:true}).click(); const dialog=page.locator('#engine-dialog');
+  await dialog.getByLabel('Excel, CSV or JSON file').setInputFiles('tests/fixtures/critic-scores.xlsx'); await dialog.getByRole('button',{name:'Validate and import'}).click();
+  await expect(dialog.getByLabel('Map WA',{exact:true})).toHaveValue('wa'); await expect(dialog.getByLabel('Map VM',{exact:true})).toHaveValue('vn'); await expect(dialog.getByLabel('Map Ratings',{exact:true})).toHaveValue('ratings');
+  await dialog.getByRole('button',{name:'Confirm Excel import'}).click(); await expect(dialog).not.toBeVisible();
+  await expect(page.locator('#engine-results tbody tr')).toHaveCount(2); await expect(page.locator('#engine-notice')).toContainText('5 retailer-reported critic reviews saved');
+  const state=JSON.parse(await readEngineRaw(page)); expect(state.reviews).toHaveLength(5); expect(state.listings[0].packCount).toBe(6); expect(state.listings[0].unitPrice).toBe(80); expect(state.listings[1].bottleMl).toBe(1500); expect(state.listings[1].criticWarnings.length).toBe(2);
+  await page.reload(); await expect(page.locator('#engine-results')).toContainText('95.6');
+});
+
+test('verified manual review requires a reference and no provider access remains explicit', async ({ page }) => {
+  await importRows(page,'flickinger',[{...wine,price:80}]); await page.getByRole('button',{name:'Professional critics',exact:true}).click(); const dialog=page.locator('#engine-dialog');
+  await expect(dialog).toContainText('Critic source unavailable'); await expect(dialog.getByRole('button',{name:'Force re-search approved critic feeds'})).toBeDisabled();
+  const form=page.locator('#critic-review-form'); await form.getByLabel('Publication',{exact:true}).fill('Vinous'); await form.getByLabel('Original score',{exact:true}).fill('97'); await form.getByRole('checkbox').check();
+  await form.getByRole('button',{name:'Save review and re-rank'}).click(); await expect(form.locator('[role="status"]')).toContainText('Supply the original publication URL');
+  expect(JSON.parse(await readEngineRaw(page)).reviews).toHaveLength(0); await form.getByRole('checkbox').uncheck(); await form.getByRole('button',{name:'Save review and re-rank'}).click(); await expect(dialog).not.toBeVisible();
+  await page.getByLabel('With independently verified reviews',{exact:true}).check(); await expect(page.locator('#engine-results')).toContainText('No wines meet these filters');
+});

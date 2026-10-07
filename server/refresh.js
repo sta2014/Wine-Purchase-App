@@ -3,7 +3,7 @@ import { sourceStatus } from '../src/engine/sources.js';
 import { JSONFeedAdapter } from './adapters.js';
 export class RefreshService {
   constructor(database, { adapter = new JSONFeedAdapter(), env = process.env, clock = () => new Date() } = {}) { this.database = database; this.adapter = adapter; this.env = env; this.clock = clock; this.running = false; }
-  async run(force = false) {
+  async run(force = false, category = null) {
     if (this.running) return { skipped: 'Refresh already running' };
     this.running = true;
     const outcomes = [];
@@ -11,7 +11,7 @@ export class RefreshService {
       const candidates = this.database.load().sources;
       for (const s of candidates) {
         const now = this.clock();
-        if (!s.enabled || s.method !== 'json' || !s.accessApproved || !s.url || (!force && s.nextDue && Date.parse(s.nextDue) > +now)) continue;
+        if ((category && s.category !== category) || !s.enabled || s.method !== 'json' || !s.accessApproved || !s.url || (!force && s.nextDue && Date.parse(s.nextDue) > +now)) continue;
         try {
           const result = await this.adapter.fetch(s, this.env, now);
           let state = this.database.load();

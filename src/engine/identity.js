@@ -99,6 +99,7 @@ export function identifyWine(row, aliases = PRODUCERS) {
   const classification = bounded(row.classification, 'Classification');
   const designation = bounded(row.designation, 'Designation');
   const region = bounded(row.region, 'Region');
+  const subregion = bounded(row.subregion, 'Subregion');
   const country = bounded(row.country, 'Country');
   const type = bounded(row.type || 'Unknown', 'Wine type');
   // Distinct unresolved values must not collapse into one canonical wine.
@@ -106,7 +107,7 @@ export function identifyWine(row, aliases = PRODUCERS) {
   const beverageKey = [canonicalProducer, normalized(cuvee), normalized(vineyard), normalized(appellation), vintageKey, normalized(classification), normalized(designation)];
   const beverageId = identifier(beverageKey);
   const id = identifier([...beverageKey, bottleMl, packCount, packaging]);
-  return { id, beverageId, rawTitle, producer, canonicalProducer, cuvee, vineyard, appellation, region, country, vintage, vintageKind, rawVintage, bottleMl, packCount, packaging, type, classification, designation, formatKnown, warnings,
+  return { id, beverageId, rawTitle, producer, canonicalProducer, cuvee, vineyard, appellation, region, subregion, country, vintage, vintageKind, rawVintage, bottleMl, packCount, packaging, type, classification, designation, formatKnown, warnings,
     identityConfidence: warnings.length ? .7 : producer && vintage ? 1 : .8 };
 }
 function similarity(a, b) {
@@ -117,17 +118,21 @@ function similarity(a, b) {
 }
 export function matchWine(a, b, { format = true } = {}) {
   const conflicts = [];
-  if (a.vintage == null || b.vintage == null || a.vintage !== b.vintage) conflicts.push('Vintage missing or different');
+  const blended = !format && ['non-vintage', 'multi-vintage'].includes(a.vintageKind) && a.vintageKind === b.vintageKind;
+  if (!blended && (a.vintage == null || b.vintage == null || a.vintage !== b.vintage)) conflicts.push('Vintage missing or different');
   if (format && (a.bottleMl !== b.bottleMl || a.packCount !== b.packCount || a.packaging !== b.packaging)) conflicts.push('Bottle/package format differs');
   if (format && (!a.formatKnown || !b.formatKnown)) conflicts.push('Bottle format unconfirmed');
   if (a.warnings.some(w => /conflict|Multiple/.test(w)) || b.warnings.some(w => /conflict|Multiple/.test(w))) conflicts.push('Conflicting identity fields');
-  for (const field of ['vineyard', 'appellation', 'classification', 'designation']) if (a[field] && b[field] && normalized(a[field]) !== normalized(b[field])) conflicts.push(`${field} differs`);
+  for (const field of ['vineyard', 'appellation', 'classification', 'designation', 'region', 'subregion']) if (a[field] && b[field] && normalized(a[field]) !== normalized(b[field])) conflicts.push(`${field} differs`);
   if (!a.canonicalProducer || !b.canonicalProducer) conflicts.push('Producer unidentified');
   if (a.canonicalProducer !== b.canonicalProducer) conflicts.push('Producer differs');
   if (a.type !== 'Unknown' && b.type !== 'Unknown' && normalized(a.type) !== normalized(b.type)) conflicts.push('Wine type differs');
   if (a.country && b.country && normalized(a.country) !== normalized(b.country)) conflicts.push('Country differs');
+  const cru = w => /\bgrand cru\b/i.test(`${w.rawTitle} ${w.classification}`) ? 'grand' : /\b(?:premier|1er|1st) cru\b/i.test(`${w.rawTitle} ${w.classification}`) ? 'premier' : '';
+  if (cru(a) && cru(b) && cru(a) !== cru(b)) conflicts.push('Cru classification differs');
   if (conflicts.length) return { confidence: 0, automatic: false, reviewable: false, reasons: conflicts };
-  const keyEqual = format ? a.id === b.id : a.beverageId === b.beverageId;
+  const titleClassificationUncertain = cru(a) !== cru(b);
+  const keyEqual = !titleClassificationUncertain && (format ? a.id === b.id : a.beverageId === b.beverageId);
   const cuveeSimilarity = similarity(a.cuvee, b.cuvee);
   // Same producer/vintage is insufficient for different cuvées or vineyards.
   const confidence = keyEqual ? 1 : cuveeSimilarity >= .85 ? .94 : cuveeSimilarity >= .5 ? .76 : .35;

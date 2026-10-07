@@ -69,6 +69,13 @@ export class EngineClient {
     if (!response.ok) throw new Error(result.error || 'Web research failed.');
     return result;
   }
+  async critics(wineId, force = false) {
+    if (this.mode !== 'server') throw new Error('Independent automatic lookup requires a connected engine and an approved critic feed. Use publication search links and add a verified review here.');
+    const response = await fetch(this.base + '/critics', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}) }, body: JSON.stringify({ wineId, force }) });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Critic lookup failed.');
+    await this.reload(); return result;
+  }
   async refresh() {
     if (this.mode !== 'server') throw new Error('Automatic retrieval requires a running engine service and an approved feed. Browser mode supports manual imports.');
     const response = await fetch(this.base + '/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}) }, body: JSON.stringify({ force: true }) });

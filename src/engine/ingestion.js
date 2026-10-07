@@ -1,3 +1,4 @@
+import { publicationName, criticInfo, isCommunity, parseCriticScore, retailerScores, upsertReview, reviewKey } from './critics.js';
 import { identifyWine, number, packageSummary } from './identity.js';
 import { identifyListings } from './listings.js';
 import { defaultSources, validateSource, STATUSES } from './sources.js';
@@ -85,18 +86,18 @@ export function normalizeRow(raw, kind, source, now) {
     return { ...base, price: packagePrice, unitPrice, pricePer750: unitPrice * 750 / wine.bottleMl, currency, availableQuantity, isAvailable, priceTerms, saleType, merchant: String(r.merchant ?? source.name).slice(0, 150), externalId: String(r.external_id ?? '').trim().slice(0, 150) };
   }
   if (['critic', 'community'].includes(kind)) {
-    const critic = String(r.critic ?? r.publication ?? '').trim();
+    const critic = String(r.publication ?? r.critic ?? '').trim();
     if (!critic) throw new Error('Review critic/publication is required.');
-    const scale = number(r.scale ?? 100, 'Score scale', { min: 1, max: 100 });
-    const scoreText = String(r.score ?? '');
-    const range = scoreText.match(/^(\d+(?:\.\d+)?)\s*[-–]\s*(\d+(?:\.\d+)?)$/);
-    const score = r.score === '' || r.score == null ? null : number(range ? range[1] : r.score, 'Review score', { min: 0, max: scale });
-    const scoreHigh = range ? number(range[2], 'Score range', { min: score, max: scale }) : score;
+    const scale = number(r.scale ?? criticInfo(critic)?.scale ?? 100, 'Score scale', { min: 1, max: 100 });
+    const parsed = parseCriticScore(r.score, scale);
+    const { score, scoreHigh } = parsed;
     const drinkFrom = number(r.drink_from, 'Drink from', { min: 1800, max: 2300, integer: true, optional: true });
     const drinkTo = number(r.drink_to, 'Drink to', { min: 1800, max: 2300, integer: true, optional: true });
     if ((drinkFrom == null) !== (drinkTo == null) || (drinkFrom != null && drinkFrom > drinkTo)) throw new Error('Drinking window requires ordered start and end years.');
     if (score == null && drinkFrom == null) throw new Error('Review needs a score or a drinking window.');
-    return { ...base, critic: critic.slice(0, 150), score, scoreHigh, scale, drinkFrom, drinkTo, notes: String(r.notes ?? '').slice(0, 4000), kind };
+    const reviewDate = r.review_date ? stamp(r.review_date, now) : null;
+    const verification = ['manually_verified', 'provider_verified'].includes(r.verification) && r.verified === true && (base.sourceURL || r.source_reference) ? r.verification : 'source_import';
+    return { ...base, critic: publicationName(critic).slice(0, 150), publication: publicationName(critic).slice(0, 150), reviewer: String(r.reviewer ?? (r.publication && r.critic && r.publication !== r.critic ? r.critic : '')).slice(0, 150), ...parsed, scale, drinkFrom, drinkTo, reviewDate, sourceReference: String(r.source_reference ?? '').slice(0, 500), verification, verified: verification !== 'source_import', formatSpecific: r.format_specific === true, notes: String(r.notes ?? '').slice(0, 4000), kind: kind === 'community' || isCommunity(critic) ? 'community' : 'critic' };
   }
   throw new Error('Unknown dataset category.');
 }
@@ -108,8 +109,15 @@ export function ingestDataset(state, sourceId, dataset, now = new Date().toISOSt
   if (!rows.length && !dataset.completeSnapshot) throw new Error('Empty import requires explicit completeSnapshot: true.');
   // Validate every row before any updates, including snapshot removal.
   let normalized = rows.map((r, i) => { try { return normalizeRow(r, source.category, source, now); } catch (error) { throw new Error(`Row ${i + 1}: ${error.message}`); } });
+  if (source.category === 'inventory') normalized = normalized.map(item => {
+    const correction=state.identityCorrections?.[item.wineId];
+    if (!correction) return item;
+    const wine=identifyWine({raw_title:item.rawTitle,...correction.fields,raw_vintage:item.wine.rawVintage,bottle_ml:item.bottleMl,pack_count:item.packCount,packaging:item.packaging});
+    return {...item,wine,wineId:wine.id,warnings:[...item.warnings,'Canonical identity uses a saved manual correction.']};
+  });
   if (source.category === 'inventory') normalized = identifyListings(normalized, source, state.listings);
   const next = structuredClone(state);
+  const reviewIndex = new Map(next.reviews.map(r=>[r.reviewKey || reviewKey(r), r]));
   const runId = crypto.randomUUID();
   const ids = new Set();
   for (const item of normalized) {
@@ -130,7 +138,20 @@ export function ingestDataset(state, sourceId, dataset, now = new Date().toISOSt
       const listing = { ...record, firstSeen: old?.firstSeen ?? now, lastSeen: now };
       if (index < 0) next.listings.push(listing); else next.listings[index] = listing;
       next.history.push({ ...listing, event: old ? 'observed' : 'first_seen' });
-    } else next[source.category === 'market' ? 'market' : source.category === 'vintage' ? 'vintages' : 'reviews'].push(record);
+    } else if (['critic', 'community'].includes(source.category)) upsertReview(next, record, reviewIndex);
+    else next[source.category === 'market' ? 'market' : 'vintages'].push(record);
+  }
+  let criticImportedCount = 0, criticWarningCount = 0;
+  if (source.category === 'inventory') for (let i = 0; i < rows.length; i++) {
+    const extracted = retailerScores(rows[i]), item = normalized[i];
+    const listing = next.listings.find(l => l.id === item.id);
+    listing.reportedRatings = extracted.rawRatings;
+    listing.criticWarnings = extracted.warnings;
+    criticWarningCount += extracted.warnings.length;
+    for (const review of extracted.scores) {
+      const record = { ...item, ...review, id: crypto.randomUUID(), runId, kind: 'critic', publication: review.critic, reviewer: '', reviewDate: null, sourceReference: String(rows[i].source_reference ?? dataset.sourceReference ?? 'Inventory export').slice(0, 500), verification: 'retailer_reported', verified: false, formatSpecific: false, drinkFrom: null, drinkTo: null, notes: 'Reported by the inventory retailer; not independently verified.', warnings: [...item.warnings], sourceURL: item.sourceURL };
+      if (upsertReview(next, record, reviewIndex)) criticImportedCount++;
+    }
   }
   if (source.category === 'inventory' && dataset.completeSnapshot) {
     for (const listing of next.listings) if (listing.sourceId === source.id && !ids.has(listing.id) && listing.isAvailable) {
@@ -138,7 +159,7 @@ export function ingestDataset(state, sourceId, dataset, now = new Date().toISOSt
       next.history.push({ ...listing, event: 'absent_from_complete_snapshot', retrievedAt: now });
     }
   }
-  next.runs.push({ id: runId, sourceId, category: source.category, at: now, count: rows.length, inferredOfferCount: normalized.filter(r => r.listingIdentity === 'inferred-offer').length, vintageWarningCount: normalized.filter(r => r.wine?.vintageKind === 'unknown' && r.wine.rawVintage).length, completeSnapshot: Boolean(dataset.completeSnapshot), status: 'success' });
+  next.runs.push({ id: runId, sourceId, category: source.category, at: now, count: rows.length, criticImportedCount, criticWarningCount, inferredOfferCount: normalized.filter(r => r.listingIdentity === 'inferred-offer').length, vintageWarningCount: normalized.filter(r => r.wine?.vintageKind === 'unknown' && r.wine.rawVintage).length, completeSnapshot: Boolean(dataset.completeSnapshot), status: 'success' });
   const saved = next.sources.find(s => s.id === sourceId);
   saved.lastChecked = now; saved.lastSuccess = now; saved.error = ''; saved.failures = 0;
   saved.nextDue = new Date(Date.parse(now) + saved.refreshHours * 3600000).toISOString();
@@ -147,7 +168,7 @@ export function ingestDataset(state, sourceId, dataset, now = new Date().toISOSt
   return next;
 }
 export function captureScores(state, at = new Date().toISOString(), runId = 'preferences') {
-  for (const row of rankInventory(state, { available: false }, new Date(at))) state.scoreHistory.push({ listingId: row.listing.id, at, runId, score: row.score, coverage: row.coverage, discount: row.discount, preferences: structuredClone(state.preferences), algorithmVersion: 1 });
+  for (const row of rankInventory(state, { available: false }, new Date(at))) state.scoreHistory.push({ listingId: row.listing.id, at, runId, score: row.score, coverage: row.coverage, discount: row.discount, preferences: structuredClone(state.preferences), criticComposite: row.quality, criticComponent: row.criticComponent, criticContribution: row.breakdown.find(b => b.key === 'quality').contribution, criticEvidence: row.professional.map(r => r.id), criticConfidence: row.criticComposite.confidence, algorithmVersion: 2 });
 }
 export function validateBackup(raw) {
   const state = structuredClone(typeof raw === 'string' ? JSON.parse(raw) : raw);
@@ -172,5 +193,15 @@ export function validateBackup(raw) {
   for (const l of [...state.listings, ...state.market]) if (!state.wines[l.wineId] || !Number.isFinite(l.unitPrice) || l.unitPrice <= 0 || !Intl.supportedValuesOf('currency').includes(l.currency) || typeof l.isAvailable !== 'boolean') throw new Error('Invalid backup listing.');
   for (const r of state.scoreHistory) if (!Number.isFinite(r.score) || !Number.isFinite(r.coverage) || !Number.isFinite(Date.parse(r.at))) throw new Error('Invalid backup opportunity history.');
   for (const [id, d] of Object.entries(state.decisions)) if (!d || !state.wines[d.wineId] || !['approved', 'rejected'].includes(d.state) || ![...state.market, ...state.reviews].some(r => r.id === id)) throw new Error('Invalid backup match decision.');
+  if (state.identityCorrections) {
+    if (typeof state.identityCorrections !== 'object' || Array.isArray(state.identityCorrections) || Object.keys(state.identityCorrections).length > 100000) throw new Error('Invalid identity corrections.');
+    for (const [id,c] of Object.entries(state.identityCorrections)) if (!state.wines[id] || !state.wines[c?.newWineId] || !c.fields || Object.values(c.fields).some(v=>typeof v!=='string' || v.length>250) || !Number.isFinite(Date.parse(c.at))) throw new Error('Invalid identity correction.');
+  }
+  for (const r of state.reviews) {
+    if (!Number.isFinite(r.scale) || r.scale<=0 || r.scale>100) throw new Error('Invalid review scale.');
+    if (r.verified && (!['manually_verified','provider_verified'].includes(r.verification) || (!r.sourceURL && !r.sourceReference))) throw new Error('Verified review requires explicit verification and provenance.');
+    if (r.scoreHigh != null && (!Number.isFinite(r.scoreHigh) || r.scoreHigh < r.score || r.scoreHigh > r.scale)) throw new Error('Invalid review range.');
+    if (r.verified != null && typeof r.verified !== 'boolean') throw new Error('Invalid review verification.');
+  }
   return structuredClone(state);
 }

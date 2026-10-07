@@ -1,3 +1,4 @@
+import { CRITICS, criticColumn } from './critics.js';
 // Spreadsheet parsing is lazy-loaded; no workbook content leaves the browser.
 import { parsePackageFormat } from './identity.js';
 const aliases = {
@@ -8,14 +9,14 @@ const aliases = {
   price: 'price', askingprice: 'price', retailprice: 'price', unitprice: 'price', bottleprice: 'unit_price', priceperbottle: 'unit_price', currency: 'currency',
   quantity: 'available_quantity', qty: 'available_quantity', availablequantity: 'available_quantity', available: 'available_quantity', stock: 'available_quantity', instock: 'available_quantity',
   sku: 'external_id', itemnumber: 'external_id', itemno: 'external_id', itemid: 'external_id', productid: 'external_id', externalid: 'external_id',
-  merchant: 'merchant', critic: 'critic', publication: 'critic', score: 'score', rating: 'score', scale: 'scale', scorescale: 'scale', drinkfrom: 'drink_from', drinkingstart: 'drink_from', drinkto: 'drink_to', drinkingend: 'drink_to',
+  merchant: 'merchant', critic: 'critic', publication: 'critic', score: 'score', rating: 'score', ratings: 'ratings', criticratings: 'ratings', criticscores: 'ratings', reviewer: 'reviewer', reviewdate: 'review_date', sourcereference: 'source_reference', scale: 'scale', scorescale: 'scale', drinkfrom: 'drink_from', drinkingstart: 'drink_from', drinkto: 'drink_to', drinkingend: 'drink_to',
   sourceurl: 'source_url', url: 'source_url', observedat: 'observed_at', confidence: 'confidence', notes: 'notes', priceterms: 'price_terms', pricebasis: 'price_basis', saletype: 'sale_type', classification: 'classification', designation: 'designation',
 };
-export const IMPORT_FIELDS = [...new Set(Object.values(aliases))];
-export const IMPORT_LABELS = { raw_title: 'Wine name', producer: 'Producer / winery', cuvee: 'Wine / cuvée', vintage: 'Vintage year', bottle_ml: 'Bottle volume (ml)', format: 'Package format (e.g. 6x750ml or 1.5L)', pack_count: 'Bottles per package', type: 'Wine color / type', price: 'Asking price', unit_price: 'Price per individual bottle', available_quantity: 'Available packages', external_id: 'Retailer SKU / product ID', source_url: 'Source link', observed_at: 'Observation date / time', critic: 'Critic / publication', scale: 'Score scale', drink_from: 'Drinking window start year', drink_to: 'Drinking window end year' };
+export const IMPORT_FIELDS = [...new Set(Object.values(aliases)), 'ratings', 'reviewer', 'review_date', 'source_reference', ...CRITICS.map(c => c.id)];
+export const IMPORT_LABELS = { ...Object.fromEntries(CRITICS.map(c => [c.id, `${c.name} reported score`])), ratings: 'Combined ratings (publication + score)', raw_title: 'Wine name', producer: 'Producer / winery', cuvee: 'Wine / cuvée', vintage: 'Vintage year', bottle_ml: 'Bottle volume (ml)', format: 'Package format (e.g. 6x750ml or 1.5L)', pack_count: 'Bottles per package', type: 'Wine color / type', price: 'Asking price', unit_price: 'Price per individual bottle', available_quantity: 'Available packages', external_id: 'Retailer SKU / product ID', source_url: 'Source link', observed_at: 'Observation date / time', critic: 'Critic / publication', scale: 'Score scale', drink_from: 'Drinking window start year', drink_to: 'Drinking window end year' };
 export function suggestColumns(header) {
   const used = new Set();
-  return header.map(value => { const key = String(value ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^a-z0-9]/g, ''); const field = aliases[key] || ''; if (used.has(field)) return ''; used.add(field); return field; });
+  return header.map(value => { const key = String(value ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^a-z0-9]/g, ''); const field = aliases[key] || criticColumn(value) || ''; if (used.has(field)) return ''; used.add(field); return field; });
 }
 export function suggestHeader(data) {
   let best = 0, score = -1;

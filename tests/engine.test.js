@@ -166,9 +166,9 @@ test('a newer unavailable quote suppresses the older available quote', () => {
   let state = withMarket(); state = ingest(state, 'market-import', [row({ price: 90, merchant: 'Retailer A', is_available: false })], '2026-10-06T13:00:00Z');
   assert.equal(rankInventory(state, {}, new Date('2026-10-06T13:00:00Z'))[0].referencePrice, null);
 });
-test('unknown evidence is not imputed; minimum critic and discount filters exclude unknowns', () => {
+test('missing critic uses disclosed neutral contribution without imputing a critic score; minimum filters exclude unknowns', () => {
   const state = inventory(), a = rankInventory(state, {}, now)[0];
-  assert.equal(a.score, 0); assert.equal(a.coverage, 0); assert.equal(a.quality, null); assert.equal(a.drinkNow, null);
+  assert.equal(a.score, 17.5); assert.equal(a.breakdown.find(b=>b.key==='quality').neutral, true); assert.equal(a.coverage, 0); assert.equal(a.quality, null); assert.equal(a.drinkNow, null);
   assert.equal(rankInventory(state, { minCritic: 90 }, now).length, 0);
   assert.equal(rankInventory(state, { minDiscount: 0 }, now).length, 0);
 });
@@ -229,7 +229,7 @@ test('low-confidence reviews and vintage assessments do not silently inflate ran
   state = ingest(state, 'critic-import', [row({ critic: 'Uncertain review', score: 100, confidence: .5 })]);
   state = ingest(state, 'vintage-import', [{ region: 'Example Bordeaux', type: 'Red', vintage: 2019, score: 100, confidence: .5 }]);
   const result = rankInventory(state, {}, now)[0];
-  assert.equal(result.quality, null); assert.equal(result.vintage, null); assert.equal(result.score, 0); assert.equal(result.exclusions.length, 2);
+  assert.equal(result.quality, null); assert.equal(result.vintage, null); assert.equal(result.score, rankInventory(inventory(), {}, now)[0].score); assert.equal(result.exclusions.length, 2);
 });
 test('malformed engine backups reject missing sources, bad observations, and false currencies', () => {
   for (const change of [s => { s.sources.push(s.sources[0]); }, s => { s.listings[0].warnings = null; }, s => { s.listings[0].currency = 'ZZZ'; }, s => { s.listings[0].unitPrice = -1; }]) {
