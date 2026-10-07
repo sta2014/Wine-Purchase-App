@@ -17,6 +17,8 @@ GitHub Pages runs in **browser/manual mode**, with imports and the full analysis
 
 **No live Flickinger inventory, licensed critic data, Wine-Searcher access, or community subscription is currently connected.** Obtain an authorized export or approved feed for real data. Named sites are configuration entries, not claims of working access. Paywalls, logins, CAPTCHA, access restrictions, and anti-bot controls are never bypassed.
 
+Retailer imports treat `6x750ml` as one six-bottle package and `3x750ml` as one three-bottle package. `1.5L` is one magnum (two 750ml equivalents); `3.0L` is one double magnum (four equivalents). The terminal separates package prices, physical bottle counts, and equivalent volume. Excel defaults do not override a detected format. Quantities count available packages.
+
 ## Original personal journal
 
 Add wines to your wishlist or purchased wines, with price/currency, quantity, vintage, type, region, notes, and purchase date. Mark as purchased, edit, confirm removal, search, filter, and sort as before. Backups merge by record ID without overwriting existing edits. Storage remains `wine-journal.v1`; backups remain `{ "version": 1, "wines": [...] }`. Records stay on that browser/device/site. Bottle counts represent purchases, not remaining cellar inventory.

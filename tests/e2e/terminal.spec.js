@@ -120,3 +120,28 @@ test('direct Excel export previews sheets and columns before importing and survi
   expect(saved.listings[0].unitPrice).toBe(80); expect(saved.listings[0].packCount).toBe(3); expect(saved.listings[1].bottleMl).toBe(1500);
   await page.reload(); await expect(page.locator('.terminal-table tbody tr')).toHaveCount(2);
 });
+test('Excel package formats display package prices and standard-volume equivalents without changing physical bottle counts', async ({ page }) => {
+  await page.getByRole('button', { name: 'Import data', exact: true }).click();
+  await page.getByLabel('Excel, CSV or JSON file').setInputFiles('tests/fixtures/package-formats.xlsx');
+  await page.getByRole('button', { name: 'Validate and import', exact: true }).click();
+  await expect(page.locator('#engine-dialog')).toContainText('Each listing format describes one package');
+  await page.getByRole('button', { name: 'Confirm Excel import', exact: true }).click();
+  await expect(page.locator('#engine-dialog')).not.toBeVisible();
+  const rows = page.locator('#engine-results tbody tr');
+  await expect(rows).toHaveCount(4);
+  const six = rows.filter({ hasText: '6 bottles × 750ml' });
+  await expect(six).toContainText('6 × 750ml equivalent');
+  await expect(six).toContainText('$480.00');
+  await expect(six).toContainText('$80.00 / physical bottle');
+  const magnum = rows.filter({ hasText: '1 magnum × 1500ml' });
+  await expect(magnum).toContainText('2 × 750ml equivalent');
+  await expect(magnum).toContainText('$190.00 / physical bottle');
+  await expect(magnum).toContainText('$95.00 / 750ml equivalent');
+  const double = rows.filter({ hasText: '1 double magnum × 3000ml' });
+  await expect(double).toContainText('4 × 750ml equivalent');
+  await expect(double).toContainText('$360.00 / physical bottle');
+  await expect(double).toContainText('$90.00 / 750ml equivalent');
+  await page.reload(); await expect(rows).toHaveCount(4);
+  await page.getByLabel('Physical bottles / package', { exact: true }).fill('1');
+  await expect(rows).toHaveCount(2);
+});

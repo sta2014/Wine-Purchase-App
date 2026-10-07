@@ -2,7 +2,7 @@
 export function normalized(value = '') {
   return String(value).normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
     .replace(/\bch\.?\b/g, 'chateau').replace(/\bdom\.?\b/g, 'domaine')
-    .replace(/\bst\.?\b/g, 'saint').replace(/[^a-z0-9]+/g, ' ').trim().replace(/\s+/g, ' ');
+    .replace(/\bst\.?\b/g, 'saint').replace(/×/g, 'x').replace(/[^a-z0-9]+/g, ' ').trim().replace(/\s+/g, ' ');
 }
 export const PRODUCERS = {
   'leoville las cases': 'Château Léoville Las Cases', 'chateau leoville las cases': 'Château Léoville Las Cases',
@@ -30,6 +30,18 @@ export function number(value, label, { min = 0, max = 1e9, integer = false, opti
 }
 // Collision-free deterministic ID: the encoded key itself, not a short hash.
 export const identifier = (parts) => 'wine:' + encodeURIComponent(JSON.stringify(parts));
+export function parsePackageFormat(value = '') {
+  const text = String(value);
+  const pack = text.match(/\b(\d{1,3})\s*[x×]\s*(\d+(?:\.\d+)?)\s*(ml|cl|l)\b/i);
+  const size = pack ?? text.match(/\b(\d+(?:\.\d+)?)\s*(ml|cl|l)\b/i);
+  const namedMl = /\bdouble[\s-]+magnum\b/i.test(text) ? 3000 : /\bmagnum\b/i.test(text) ? 1500 : null;
+  const bottleMl = size ? Number(size[pack ? 2 : 1]) * ({ ml: 1, cl: 10, l: 1000 })[size[pack ? 3 : 2].toLowerCase()] : namedMl;
+  const count = text.match(/\b(?:case|pack)\s*(?:of\s*)?(\d+)\b/i);
+  return { bottleMl, packCount: pack ? Number(pack[1]) : count ? Number(count[1]) : null, namedMl };
+}
+export function packageSummary(wine) {
+  return { physicalBottles: wine.packCount, bottleMl: wine.bottleMl, packageMl: wine.packCount * wine.bottleMl, standardBottleEquivalent: wine.packCount * wine.bottleMl / 750 };
+}
 export function identifyWine(row, aliases = PRODUCERS) {
   const rawTitle = bounded(row.raw_title ?? row.name ?? row.wine, 'Wine title');
   if (!rawTitle) throw new Error('A wine title is required.');
@@ -51,24 +63,26 @@ export function identifyWine(row, aliases = PRODUCERS) {
   const knownAppellation = { 'chateau leoville las cases': 'Saint-Julien', 'chateau margaux': 'Margaux', 'chateau lafite rothschild': 'Pauillac' }[canonicalProducer];
   const appellation = bounded(row.appellation, 'Appellation') || APPELLATIONS.find(a => (` ${title} `).includes(` ${normalized(a)} `)) || knownAppellation || '';
   if (appellation) title = (` ${title} `).replace(` ${normalized(appellation)} `, ' ').trim();
-  const packMatch = rawTitle.match(/\b(\d{1,3})\s*[x×]\s*(\d+(?:\.\d+)?)\s*(ml|cl|l)\b/i);
-  const sizeMatch = packMatch ?? rawTitle.match(/\b(\d+(?:\.\d+)?)\s*(ml|cl|l)\b/i);
-  const multiplier = unit => ({ ml: 1, cl: 10, l: 1000 })[unit.toLowerCase()];
-  const extractedMl = sizeMatch ? Number(sizeMatch[packMatch ? 2 : 1]) * multiplier(sizeMatch[packMatch ? 3 : 2]) : /\bmagnum\b/i.test(rawTitle) ? 1500 : null;
-  const bottleMl = supplied(row.bottle_ml) ? number(row.bottle_ml, 'Bottle ml', { min: 50, max: 30000, integer: true }) : extractedMl ?? 750;
+  const titleFormat = parsePackageFormat(rawTitle), columnFormat = parsePackageFormat(row.format);
+  if (supplied(row.format) && !columnFormat.bottleMl) throw new Error('Package format needs a size such as 6x750ml, 1.5L, or double magnum.');
+  if (titleFormat.bottleMl && columnFormat.bottleMl && titleFormat.bottleMl !== columnFormat.bottleMl) warnings.push('Package format column conflicts with bottle size in title.');
+  if (titleFormat.packCount && columnFormat.packCount && titleFormat.packCount !== columnFormat.packCount) warnings.push('Package format column conflicts with pack count in title.');
+  for (const f of [titleFormat, columnFormat]) if (f.namedMl && f.bottleMl !== f.namedMl) warnings.push('Named bottle format conflicts with displayed volume.');
+  const extractedMl = columnFormat.bottleMl ?? titleFormat.bottleMl;
+  const bottleMl = number(supplied(row.bottle_ml) ? row.bottle_ml : extractedMl ?? 750, 'Bottle ml', { min: 50, max: 30000, integer: true });
   const formatKnown = supplied(row.bottle_ml) || Boolean(extractedMl);
   if (!formatKnown) warnings.push('750ml assumed; explicit bottle format needed for trusted comparisons.');
   if (extractedMl && row.bottle_ml && extractedMl !== bottleMl) warnings.push('Explicit bottle size conflicts with title.');
-  const caseMatch = rawTitle.match(/\b(?:case|pack)\s*(?:of\s*)?(\d+)\b/i);
-  const extractedPack = packMatch ? Number(packMatch[1]) : caseMatch ? Number(caseMatch[1]) : null;
-  const packCount = supplied(row.pack_count) ? number(row.pack_count, 'Pack count', { min: 1, max: 120, integer: true }) : extractedPack ?? 1;
+  const extractedPack = columnFormat.packCount ?? titleFormat.packCount;
+  const packCount = number(supplied(row.pack_count) ? row.pack_count : extractedPack ?? 1, 'Pack count', { min: 1, max: 120, integer: true });
   if (extractedPack && row.pack_count && packCount !== extractedPack) warnings.push('Explicit pack count conflicts with title.');
-  const packaging = normalized(row.packaging || (/\bowc\b|original wooden case/i.test(rawTitle) ? 'owc' : 'loose'));
-  if (row.packaging && /\bowc\b|original wooden case/i.test(rawTitle) && packaging !== 'owc') warnings.push('Explicit packaging conflicts with wooden-case title.');
+  const woodenCase = /\bowc\b|original wooden case/i.test(`${rawTitle} ${row.format || ''}`);
+  const packaging = normalized(row.packaging || (woodenCase ? 'owc' : 'loose'));
+  if (row.packaging && woodenCase && packaging !== 'owc') warnings.push('Explicit packaging conflicts with wooden-case format.');
   if (!['owc', 'loose', 'carton'].includes(packaging)) throw new Error('Packaging must be loose, carton, or owc.');
   title = title.replace(/\b\d+\s*[x]\s*\d+(?:\s+\d+)?\s*(?:ml|cl|l)\b/g, '')
     .replace(/\b\d+(?:\s+\d+)?\s*(?:ml|cl|l)\b/g, '').replace(/\b(?:case|pack)\s+(?:of\s+)?\d+\b/g, '')
-    .replace(/\b(?:owc|magnum|original wooden case)\b/g, '').replace(/\s+/g, ' ').trim();
+    .replace(/\b(?:double magnum|owc|magnum|original wooden case)\b/g, '').replace(/\s+/g, ' ').trim();
   const cuvee = bounded(row.cuvee, 'Cuvée') || title;
   const vineyard = bounded(row.vineyard, 'Vineyard');
   const classification = bounded(row.classification, 'Classification');

@@ -14,6 +14,17 @@ Every observation retains source ID/name, URL/reference when supplied, retrieval
 
 ## Category fields
 
+Each listing format describes **one purchasable package**. Physical bottles and equivalent standard 750ml bottles are separate measures:
+
+| Format | Physical bottles in one package | Volume per physical bottle | 750ml equivalents per package |
+| --- | --- | --- | --- |
+| 6x750ml | 6 | 750ml | 6 |
+| 3x750ml | 3 | 750ml | 3 |
+| 1.5L / magnum | 1 | 1500ml | 2 |
+| 3.0L / double magnum | 1 | 3000ml | 4 |
+
+The importer reads these formats from the wine title or a mapped package-format column, with `x` or `×`, mixed capitalization, and spaces. Detected counts/volumes take priority over Excel defaults. Contradictory explicit fields are flagged and excluded from automatic price matching. Available quantity counts packages; it is not forced to one. Package price is the default asking-price basis. A generic Excel “Unit Price” heading maps to the package asking price; only an explicit per-bottle column or selected per-bottle price basis opts into physical-bottle pricing. Results display package prices, prices per physical bottle, and normalized prices per 750ml equivalent. A magnum's equivalent volume never changes its physical bottle count or makes it the same market product as two loose standard bottles.
+
 | Category | Additional fields |
 | --- | --- |
 | Inventory | `price`, `price_basis`, `currency`, `available_quantity`, `is_available`, `external_id`, `price_terms`, `source_url`, `observed_at` |

@@ -1,17 +1,18 @@
 // Spreadsheet parsing is lazy-loaded; no workbook content leaves the browser.
+import { parsePackageFormat } from './identity.js';
 const aliases = {
   wine: 'raw_title', winename: 'raw_title', winedescription: 'raw_title', description: 'raw_title', productname: 'raw_title', name: 'raw_title', title: 'raw_title', rawtitle: 'raw_title',
   producer: 'producer', winery: 'producer', estate: 'producer', cuvee: 'cuvee', vineyard: 'vineyard', appellation: 'appellation', region: 'region', country: 'country',
-  vintage: 'vintage', year: 'vintage', vintageyear: 'vintage', bottleml: 'bottle_ml', bottlesizeml: 'bottle_ml', sizeml: 'bottle_ml', size: 'format', bottlesize: 'format', format: 'format',
+  vintage: 'vintage', year: 'vintage', vintageyear: 'vintage', bottleml: 'bottle_ml', bottlesizeml: 'bottle_ml', sizeml: 'bottle_ml', size: 'format', bottlesize: 'format', format: 'format', packageformat: 'format', packagesize: 'format',
   packcount: 'pack_count', packsize: 'pack_count', bottlecount: 'pack_count', packaging: 'packaging', type: 'type', winetype: 'type', color: 'type', colour: 'type',
-  price: 'price', askingprice: 'price', retailprice: 'price', unitprice: 'unit_price', bottleprice: 'unit_price', priceperbottle: 'unit_price', currency: 'currency',
+  price: 'price', askingprice: 'price', retailprice: 'price', unitprice: 'price', bottleprice: 'unit_price', priceperbottle: 'unit_price', currency: 'currency',
   quantity: 'available_quantity', qty: 'available_quantity', availablequantity: 'available_quantity', available: 'available_quantity', stock: 'available_quantity', instock: 'available_quantity',
   sku: 'external_id', itemnumber: 'external_id', itemno: 'external_id', itemid: 'external_id', productid: 'external_id', externalid: 'external_id',
   merchant: 'merchant', critic: 'critic', publication: 'critic', score: 'score', rating: 'score', scale: 'scale', scorescale: 'scale', drinkfrom: 'drink_from', drinkingstart: 'drink_from', drinkto: 'drink_to', drinkingend: 'drink_to',
   sourceurl: 'source_url', url: 'source_url', observedat: 'observed_at', confidence: 'confidence', notes: 'notes', priceterms: 'price_terms', pricebasis: 'price_basis', saletype: 'sale_type', classification: 'classification', designation: 'designation',
 };
 export const IMPORT_FIELDS = [...new Set(Object.values(aliases))];
-export const IMPORT_LABELS = { raw_title: 'Wine name', producer: 'Producer / winery', cuvee: 'Wine / cuvée', vintage: 'Vintage year', bottle_ml: 'Bottle volume (ml)', format: 'Bottle size (e.g. 750ml)', pack_count: 'Bottles per package', type: 'Wine color / type', price: 'Asking price', unit_price: 'Price per individual bottle', available_quantity: 'Available packages', external_id: 'Retailer SKU / product ID', source_url: 'Source link', observed_at: 'Observation date / time', critic: 'Critic / publication', scale: 'Score scale', drink_from: 'Drinking window start year', drink_to: 'Drinking window end year' };
+export const IMPORT_LABELS = { raw_title: 'Wine name', producer: 'Producer / winery', cuvee: 'Wine / cuvée', vintage: 'Vintage year', bottle_ml: 'Bottle volume (ml)', format: 'Package format (e.g. 6x750ml or 1.5L)', pack_count: 'Bottles per package', type: 'Wine color / type', price: 'Asking price', unit_price: 'Price per individual bottle', available_quantity: 'Available packages', external_id: 'Retailer SKU / product ID', source_url: 'Source link', observed_at: 'Observation date / time', critic: 'Critic / publication', scale: 'Score scale', drink_from: 'Drinking window start year', drink_to: 'Drinking window end year' };
 export function suggestColumns(header) {
   const used = new Set();
   return header.map(value => { const key = String(value ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^a-z0-9]/g, ''); const field = aliases[key] || ''; if (used.has(field)) return ''; used.add(field); return field; });
@@ -28,8 +29,16 @@ export function mapSpreadsheet(data, headerRow, mapping, defaults = {}) {
   const rows = data.slice(headerRow + 1).filter(row => row.some(cell => cell != null && cell !== ''));
   if (!rows.length || rows.length > 10000) throw new Error('Choose a sheet with 1–10,000 data rows.');
   return rows.map((row, index) => {
-    const item = { ...defaults };
+    const item = {};
     mapping.forEach((field, col) => { if (field && row[col] != null && row[col] !== '') { const value = row[col]; if (value instanceof Date) item[field] = value.toISOString(); else if (['string', 'number', 'boolean'].includes(typeof value)) item[field] = value; else throw new Error(`Spreadsheet row ${headerRow + index + 2} contains an unsupported cell.`); } });
+    const columnFormat = parsePackageFormat(item.format), titleFormat = parsePackageFormat(item.raw_title);
+    for (const [key, value] of Object.entries(defaults)) {
+      if (item[key] != null && item[key] !== '') continue;
+      if (key === 'bottle_ml' && (columnFormat.bottleMl || titleFormat.bottleMl)) continue;
+      if (key === 'pack_count' && (columnFormat.packCount || titleFormat.packCount)) continue;
+      if (key === 'packaging' && /\bowc\b|original wooden case/i.test(`${item.raw_title || ''} ${item.format || ''}`)) continue;
+      item[key] = value;
+    }
     return item;
   });
 }

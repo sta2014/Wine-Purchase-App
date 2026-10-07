@@ -1,4 +1,4 @@
-import { identifyWine, number } from './identity.js';
+import { identifyWine, number, packageSummary } from './identity.js';
 import { defaultSources, validateSource, STATUSES } from './sources.js';
 import { rankInventory, validatePreferences } from './ranking.js';
 export const ENGINE_KEY = 'wine-intelligence.v1';
@@ -53,11 +53,6 @@ const stamp = (value, now) => {
 export function normalizeRow(raw, kind, source, now) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Each row must be an object.');
   const r = Object.fromEntries(Object.entries(raw).map(([k, v]) => [ALIASES[header(k)] ?? header(k), v]));
-  if (r.format && !r.bottle_ml) {
-    const f = String(r.format).match(/^(\d+(?:\.\d+)?)\s*(ml|cl|l)$/i);
-    if (!f) throw new Error('Bottle size needs ml/cl/L, or use bottle_ml.');
-    r.bottle_ml = Number(f[1]) * ({ ml: 1, cl: 10, l: 1000 })[f[2].toLowerCase()];
-  }
   const observedAt = stamp(r.observed_at, now);
   const provenance = { sourceId: source.id, sourceName: source.name, sourceURL: safeURL(r.source_url), retrievedAt: now, observedAt, rawTitle: String(r.raw_title ?? ''), confidence: number(r.confidence ?? 1, 'Data confidence', { min: 0, max: 1 }), warnings: [] };
   if (kind === 'vintage') {
@@ -69,7 +64,7 @@ export function normalizeRow(raw, kind, source, now) {
   const wine = identifyWine(r);
   provenance.rawTitle = wine.rawTitle;
   provenance.warnings = [...wine.warnings];
-  const base = { ...provenance, wine, wineId: wine.id, bottleMl: wine.bottleMl, packCount: wine.packCount, packaging: wine.packaging };
+  const base = { ...provenance, wine, wineId: wine.id, bottleMl: wine.bottleMl, packCount: wine.packCount, packaging: wine.packaging, ...packageSummary(wine) };
   if (['inventory', 'market'].includes(kind)) {
     const currency = String(r.currency ?? 'USD').toUpperCase();
     if (!/^[A-Z]{3}$/.test(currency)) throw new Error('Currency requires a three-letter code.');
