@@ -30,6 +30,13 @@ export class EngineClient {
     this.state = validateBackup(result);
   }
   async reload() { if (this.mode === 'server') await this.connect(this.base, this.token); }
+  async research(wineId) {
+    if (this.mode !== 'server') throw new Error('Automatic web research requires a connected engine. Use the browser search links below for now.');
+    const response = await fetch(this.base + '/research', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}) }, body: JSON.stringify({ wineId }), signal: AbortSignal.timeout(25000) });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Web research failed.');
+    return result;
+  }
   async refresh() {
     if (this.mode !== 'server') throw new Error('Automatic retrieval requires a running engine service and an approved feed. Browser mode supports manual imports.');
     const response = await fetch(this.base + '/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}) }, body: JSON.stringify({ force: true }) });

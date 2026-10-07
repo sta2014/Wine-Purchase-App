@@ -7,6 +7,7 @@ services:
     environment:
       ENGINE_ACCESS_TOKEN: ${ENGINE_ACCESS_TOKEN:?Set a private engine access token in host settings or .env}
       WINE_ALLOWED_ORIGINS: ${WINE_ALLOWED_ORIGINS:-https://sta2014.github.io}
+      BRAVE_SEARCH_API_KEY: ${BRAVE_SEARCH_API_KEY:-}
     volumes:
       - wine-history:/data
 volumes:

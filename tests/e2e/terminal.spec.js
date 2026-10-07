@@ -15,6 +15,47 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/');
 });
 
+test('price research uses exact package queries and leaves verified comparisons unchanged', async ({ page }) => {
+  await importRows(page, 'flickinger', [{ ...wine, raw_title: 'Example Estate Reserve 2019 6x750ml OWC', pack_count: 6, packaging: 'owc', price: 480, currency: 'USD' }]);
+  const before = await page.evaluate(() => localStorage.getItem('wine-intelligence.v1'));
+  await page.getByRole('button', { name: 'Research prices', exact: true }).click();
+  const dialog = page.locator('#engine-dialog');
+  await expect(dialog.getByLabel('Wine web search query')).toHaveValue(/2019 750ml 6 bottles original wooden case/);
+  const link = dialog.getByRole('link', { name: /Search Google/ });
+  expect(new URL(await link.getAttribute('href')).searchParams.get('q')).toContain('-site:wine-searcher.com');
+  await expect(dialog.getByRole('button', { name: 'Find retailer results' })).toBeDisabled();
+  await expect(dialog).toContainText('connect an engine');
+  await page.locator('#engine-dialog-close').click();
+  expect(await page.evaluate(() => localStorage.getItem('wine-intelligence.v1'))).toEqual(before);
+  await expect(page.locator('.terminal-table tbody tr')).toContainText('0 current merchants');
+});
+
+test('connected search renders escaped unverified leads without promoting snippet prices', async ({ page }) => {
+  await importRows(page, 'flickinger', [{ ...wine, price: 80, currency: 'USD' }]);
+  const state = JSON.parse(await page.evaluate(() => localStorage.getItem('wine-intelligence.v1')));
+  let researched = '';
+  await page.route('https://engine.example/api/**', async route => {
+    if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'content-type', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' } });
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/research') researched = route.request().postDataJSON().wineId;
+    const body = path === '/api/engine' ? state : { status: 'ok', provider: 'Test search fixture', query: 'Example', retrievedAt: new Date().toISOString(), message: 'Search leads only.', results: [{ url: 'https://merchant.example/wine', title: 'Synthetic merchant', merchantHost: 'merchant.example', description: '<img src=x onerror=alert(1)> $100 search snippet', verification: 'unverified' }] };
+    await route.fulfill({ contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify(body) });
+  });
+  await page.getByRole('button', { name: 'Connect engine', exact: true }).click();
+  await page.getByLabel('Engine API URL').fill('https://engine.example/api');
+  await page.locator('#engine-connect-form').getByRole('button', { name: 'Connect engine', exact: true }).click();
+  await expect(page.locator('#engine-mode')).toContainText('CONNECTED ENGINE');
+  await page.getByRole('button', { name: 'Research prices', exact: true }).click();
+  await page.getByRole('button', { name: 'Find retailer results' }).click();
+  await expect(page.locator('#engine-research-results')).toContainText('UNVERIFIED SEARCH LEAD');
+  await expect(page.locator('#engine-research-results')).toContainText('<img');
+  await expect(page.locator('#engine-research-results img')).toHaveCount(0);
+  expect(researched).toEqual(state.listings[0].wineId);
+  await page.locator('#engine-dialog-close').click();
+  await expect(page.locator('.terminal-table tbody tr')).toContainText('0 current merchants');
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('wine-intelligence.v1')).market)).toHaveLength(0);
+});
+
 test('inventory, enrichment, filtering, explanations and source switches persist', async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await importRows(page, 'flickinger', [{ ...wine, price: 80, currency: 'USD', available_quantity: 4, external_id: 'offer-1' }, { ...wine, raw_title: 'Example Estate Reserve 2019 Magnum', bottle_ml: 1500, price: 180, currency: 'USD', available_quantity: 1, external_id: 'offer-2' }]);

@@ -8,8 +8,9 @@ import { RefreshService } from './refresh.js';
 import { applyAction } from '../src/engine/actions.js';
 import { sourceStatus } from '../src/engine/sources.js';
 import { credentialAvailable } from './adapters.js';
+import { WebResearchService } from './research.js';
 
-export function createEngineServer({ database = new EngineDatabase(process.env.WINE_DB_FILE || '.local/wine-engine.sqlite'), token = process.env.ENGINE_ACCESS_TOKEN || '', origins = (process.env.WINE_ALLOWED_ORIGINS || '').split(',').filter(Boolean), refresh = new RefreshService(database), staticDir = 'dist' } = {}) {
+export function createEngineServer({ database = new EngineDatabase(process.env.WINE_DB_FILE || '.local/wine-engine.sqlite'), token = process.env.ENGINE_ACCESS_TOKEN || '', origins = (process.env.WINE_ALLOWED_ORIGINS || '').split(',').filter(Boolean), refresh = new RefreshService(database), research = new WebResearchService(), staticDir = 'dist' } = {}) {
   const server = createServer(async (req, res) => {
     const origin = req.headers.origin;
     const host = req.headers.host || '';
@@ -49,6 +50,12 @@ export function createEngineServer({ database = new EngineDatabase(process.env.W
       let bytes = 0; const chunks = [];
       for await (const chunk of req) { bytes += chunk.length; if (bytes > 10 * 1024 * 1024) return send(413, { error: 'Request exceeds 10 MB.' }); chunks.push(chunk); }
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      if (url.pathname === '/api/research') {
+        const state = database.load(), wine = state.wines[body.wineId];
+        if (!wine) return send(404, { error: 'Wine not found. Import inventory first.' });
+        if (!state.listings.some(l => l.wineId === wine.id && state.sources.find(s => s.id === l.sourceId)?.enabled)) return send(400, { error: 'Research requires inventory from an enabled source.' });
+        return send(200, await research.search(wine));
+      }
       if (url.pathname === '/api/refresh') return send(200, await refresh.run(body.force === true));
       if (url.pathname === '/api/action') {
         const current = database.load();
