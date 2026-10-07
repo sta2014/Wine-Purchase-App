@@ -143,7 +143,7 @@ export function ingestDataset(state, sourceId, dataset, now = new Date().toISOSt
       const existing = next.wines[item.wineId];
       // Enrichment with fewer descriptive fields must not erase inventory metadata.
       next.wines[item.wineId] = existing ? { ...existing } : item.wine;
-      if (existing) for (const field of ['region', 'country', 'type']) if (!existing[field] || existing[field] === 'Unknown') next.wines[item.wineId][field] = item.wine[field];
+      if (existing) for (const field of ['region', 'subregion', 'style', 'country', 'type']) if (!existing[field] || existing[field] === 'Unknown') next.wines[item.wineId][field] = item.wine[field];
     }
     const id = source.category === 'inventory' ? item.id : crypto.randomUUID();
     if (ids.has(id)) throw new Error('Inventory offer IDs could not be assigned uniquely.');

@@ -14,13 +14,13 @@ const rows = [
   ...['Meursault','Puligny-Montrachet','Chassagne-Montrachet','Beaune','Pommard','Volnay','Aloxe-Corton','Savigny-lès-Beaune','Saint-Aubin'].map(n=>[geoKey(n).replaceAll(' ','-'),n,'cote-beaune','appellation',[], ['Meursault','Puligny-Montrachet'].includes(n)?'White':['Pommard','Volnay'].includes(n)?'Red':null]),
   ['maconnais','Mâconnais','burgundy','subregion',[]], ['pouilly-fuisse','Pouilly-Fuissé','maconnais','appellation',[],'White'],
   ...['Montrachet','Chevalier-Montrachet','Bâtard-Montrachet','Bienvenues-Bâtard-Montrachet','Corton-Charlemagne'].map(n=>[geoKey(n).replaceAll(' ','-'),n,'cote-beaune','appellation',[],'White']),
-  ...['Chambertin','Griotte-Chambertin','Clos de Vougeot','Échezeaux','Grands-Échezeaux','Richebourg','Romanée-Conti','Romanée-Saint-Vivant','Clos de la Roche','Clos Saint-Denis'].map(n=>[geoKey(n).replaceAll(' ','-'),n,'nuits','appellation',[],'Red']),
+  ...['Chambertin','Griotte-Chambertin','Clos de Vougeot','Échezeaux','Grands-Échezeaux','Richebourg','Romanée-Conti','Romanée-Saint-Vivant','Clos de la Roche','Clos Saint-Denis','Musigny','Bonnes-Mares'].map(n=>[geoKey(n).replaceAll(' ','-'),n,'nuits','appellation',[],'Red']),
   ['rhone','Rhône','france','region',['Rhone Valley']], ['north-rhone','Northern Rhône','rhone','subregion',['North Rhone']], ['south-rhone','Southern Rhône','rhone','subregion',['South Rhone']],
   ['cote-rotie','Côte-Rôtie','north-rhone','appellation',[],'Red'], ['hermitage','Hermitage','north-rhone','appellation',[]], ['crozes','Crozes-Hermitage','north-rhone','appellation',[]], ['saint-joseph','Saint-Joseph','north-rhone','appellation',[]], ['cornas','Cornas','north-rhone','appellation',[],'Red'], ['condrieu','Condrieu','north-rhone','appellation',[],'White'],
   ['cdp','Châteauneuf-du-Pape','south-rhone','appellation',['CdP']], ['gigondas','Gigondas','south-rhone','appellation',[],'Red'], ['vacqueyras','Vacqueyras','south-rhone','appellation',[]], ['cotes-rhone','Côtes du Rhône','rhone','appellation',[]],
   ['champagne','Champagne','france','region',[],'Sparkling'], ['loire','Loire','france','region',['Loire Valley']], ['alsace','Alsace','france','region',[]], ['jura','Jura','france','region',[]],
   ['piedmont','Piedmont','italy','region',['Piemonte']], ['langhe','Langhe','piedmont','subregion',[]], ['barolo','Barolo','langhe','appellation',[],'Red'], ['barbaresco','Barbaresco','langhe','appellation',[],'Red'],
-  ['tuscany','Tuscany','italy','region',['Toscana']], ['montalcino','Montalcino','tuscany','subregion',[]], ['brunello','Brunello di Montalcino','montalcino','appellation',['Brunello'],'Red'], ['rosso-montalcino','Rosso di Montalcino','montalcino','appellation',[],'Red'], ['chianti-classico','Chianti Classico','tuscany','appellation',[],'Red'], ['bolgheri','Bolgheri','tuscany','appellation',[]],
+  ['tuscany','Tuscany','italy','region',['Toscana']], ['montalcino','Montalcino','tuscany','subregion',[]], ['brunello','Brunello di Montalcino','montalcino','appellation',['Brunello'],'Red'], ['rosso-montalcino','Rosso di Montalcino','montalcino','appellation',[],'Red'], ['chianti','Chianti','tuscany','subregion',[],'Red'], ['chianti-classico','Chianti Classico','chianti','appellation',[],'Red'], ['bolgheri','Bolgheri','tuscany','appellation',[]],
   ['veneto','Veneto','italy','region',[]], ['amarone','Amarone della Valpolicella','veneto','appellation',['Amarone'],'Red'], ['sicily','Sicily','italy','region',['Sicilia']], ['etna','Etna','sicily','appellation',[]],
   ['california','California','usa','region',['California / USA']], ['napa','Napa Valley','california','subregion',['Napa']],
   ...['Rutherford','Oakville','Stags Leap District','Howell Mountain','Spring Mountain District','Mount Veeder','Diamond Mountain District'].map(n=>[geoKey(n).replaceAll(' ','-'),n,'napa','appellation',[]]),
@@ -37,6 +37,10 @@ const contains = (text, phrase) => (` ${geoKey(text)} `).includes(` ${geoKey(phr
 export function canonicalType(value) {
   const key=geoKey(value);
   return ({red:'Red',rouge:'Red',white:'White',blanc:'White',rose:'Rosé',rosato:'Rosé',sparkling:'Sparkling',champagne:'Sparkling',sweet:'Sweet',dessert:'Sweet',fortified:'Fortified',unknown:'Unknown','dry white':'White','red burgundy':'Red','white burgundy':'White','red bordeaux':'Red','sweet bordeaux':'Sweet'})[key] || (key ? String(value) : 'Unknown');
+}
+export function canonicalStyle(value) {
+  const key=geoKey(value);
+  return ({cabernet:'cabernet sauvignon','cab sauv':'cabernet sauvignon','cab sauvignon':'cabernet sauvignon','cab franc':'cabernet franc',chard:'chardonnay'})[key] || key;
 }
 export function canonicalGeography(input, { inferTitle = true } = {}) {
   const raw=Object.fromEntries(['country','region','subregion','appellation','vineyard'].map(k=>[k,String(input[k] || '')]));
@@ -66,12 +70,15 @@ export function canonicalGeography(input, { inferTitle = true } = {}) {
   }
   if(raw.vineyard && path.at(-1)?.level==='appellation') path.push({id:`vineyard:${path.at(-1).id}:${geoKey(raw.vineyard)}`,name:raw.vineyard,level:'vineyard'});
   const explicitType=canonicalType(input.type), title=input.rawTitle || input.raw_title || '';
-  const titleType=/\b(blanc|white|chardonnay|riesling|sauvignon blanc)\b/i.test(title)?'White':/\b(rouge|red|cabernet(?: sauvignon)?|pinot noir)\b/i.test(title)?'Red':null;
+  const colorTitle=`${canonicalStyle(input.style)} ${title}`.replace(/\bcheval\s+blanc\b/ig,'Cheval');
+  const titleType=path.some(n=>n.id==='champagne')?'Sparkling':/\b(blanc|white|chardonnay|riesling|sauvignon blanc)\b/i.test(colorTitle)?'White':/\b(rouge|red|cabernet(?: sauvignon| franc)?|pinot noir)\b/i.test(colorTitle)?'Red':null;
   const type=explicitType!=='Unknown' && !['All','Any','all','any'].includes(explicitType)?explicitType:titleType || leaf?.defaultType || 'Unknown';
-  const style=geoKey(input.style || (/\bcabernet(?: sauvignon)?\b/i.test(title)?'Cabernet Sauvignon':/\briesling\b/i.test(title)?'Riesling':''));
+  const inferredStyle=canonicalStyle(/\bcabernet franc\b/i.test(title)?'Cabernet Franc':/\bcabernet(?: sauvignon)?\b/i.test(title)?'Cabernet Sauvignon':/\bpinot noir\b/i.test(title)?'Pinot Noir':/\bchardonnay\b/i.test(title)?'Chardonnay':/\bsauvignon blanc\b/i.test(title)?'Sauvignon Blanc':/\briesling\b/i.test(title)?'Riesling':'');
+  const style=canonicalStyle(input.style || inferredStyle);
+  if(input.style && inferredStyle && style!==inferredStyle) warnings.push('Conflicting wine style and title; review mapping.');
   const country=path.find(n=>n.level==='country')?.name || raw.country;
   const region=path.find(n=>n.level==='region')?.name || raw.region;
   const subregion=path.filter(n=>n.level==='subregion').at(-1)?.name || raw.subregion;
   const appellation=path.find(n=>n.level==='appellation')?.name || raw.appellation;
-  return {raw,country,region,subregion,appellation,vineyard:raw.vineyard,path,leafId:path.at(-1)?.id || '',level:path.at(-1)?.level || 'unknown',type,style,warnings,conflict:warnings.some(w=>/conflict|requires review/.test(w)),typeBasis:explicitType!=='Unknown'?'Imported wine type':titleType?'Explicit style in title':leaf?.defaultType?'Appellation convention':'Unknown'};
+  return {raw,country,region,subregion,appellation,vineyard:raw.vineyard,path,leafId:path.at(-1)?.id || '',level:path.at(-1)?.level || 'unknown',type,style,warnings,conflict:warnings.some(w=>/conflict|requires review/i.test(w)),typeBasis:explicitType!=='Unknown'?'Imported wine type':titleType?'Explicit style in title':leaf?.defaultType?'Appellation convention':'Unknown'};
 }

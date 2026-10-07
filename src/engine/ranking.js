@@ -99,9 +99,9 @@ export function filterRankedInventory(analyses, filters = {}) {
     if (filters.available !== false && !l.isAvailable) return false;
     if (filters.source && l.sourceId !== filters.source) return false;
     if (filters.currency && l.currency !== filters.currency) return false;
-    if (filters.type && normalized(w.type) !== normalized(filters.type)) return false;
-    if (filters.region && normalized(w.region) !== normalized(filters.region)) return false;
-    if (filters.country && normalized(w.country) !== normalized(filters.country)) return false;
+    if (filters.type && normalized(a.vintageIntelligence.geography.type) !== normalized(filters.type)) return false;
+    if (filters.region && normalized(w.region) !== normalized(filters.region) && normalized(a.vintageIntelligence.geography.region) !== normalized(filters.region)) return false;
+    if (filters.country && normalized(a.vintageIntelligence.geography.country) !== normalized(filters.country)) return false;
     if (search && !normalized([w.rawTitle, w.producer, w.cuvee, w.region, w.appellation, w.country].join(' ')).includes(search)) return false;
     for (const [key, value, direction] of [['maxPrice', l.unitPrice, 'max'], ['minPrice', l.unitPrice, 'min'], ['minVintage', w.vintage, 'min'], ['maxVintage', w.vintage, 'max'], ['minCritic', a.quality, 'min'], ['minVintageScore', a.vintage, 'min'], ['minDiscount', a.discount == null ? null : a.discount * 100, 'min'], ['minQuantity', l.availableQuantity, 'min'], ['minCoverage', a.coverage * 100, 'min']]) {
       if (filters[key] !== '' && filters[key] != null && (value == null || (direction === 'min' ? value < Number(filters[key]) : value > Number(filters[key])))) return false;
@@ -111,6 +111,8 @@ export function filterRankedInventory(analyses, filters = {}) {
     if (filters.publication && !a.professional.some(r => publicationName(r.publication || r.critic) === filters.publication)) return false;
     if (filters.verifiedOnly && !a.criticComposite.verifiedCount) return false;
     if (filters.hideUncertain && a.pendingMatches.some(m => m.observation.kind === 'critic')) return false;
+    if(filters.subregion && !a.vintageIntelligence.geography.path.some(n=>n.level==='subregion' && geoKeyForFilter(n.name)===geoKeyForFilter(filters.subregion))) return false;
+    if(filters.style && geoKeyForFilter(a.vintageIntelligence.geography.style)!==geoKeyForFilter(filters.style)) return false;
     if(filters.appellation && geoKeyForFilter(a.vintageIntelligence.geography.appellation)!==geoKeyForFilter(filters.appellation)) return false;
     if(filters.vintageTier && !(Array.isArray(filters.vintageTier)?filters.vintageTier:filters.vintageTier.split('|')).includes(a.vintageIntelligence.tier)) return false;
     if(filters.vintageConfidence && !['Low','Medium','High','Very High'].slice(['Low','Medium','High','Very High'].indexOf(filters.vintageConfidence)).includes(a.vintageIntelligence.confidenceLabel)) return false;

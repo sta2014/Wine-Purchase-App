@@ -1,4 +1,4 @@
-import { canonicalGeography, canonicalType, geoKey } from './geography.js';
+import { canonicalGeography, canonicalType, canonicalStyle, geographyNode, geoKey } from './geography.js';
 import { number } from './identity.js';
 
 export const VINTAGE_PROVIDERS = [
@@ -43,8 +43,9 @@ export function normalizeVintageRating(value, scale=100, system='points') {
   }
   if(system!=='points') throw new Error('Vintage rating system must be points, stars, category or letter.');
   scale=number(scale,'Vintage scale',{min:1,max:100});
-  const range=rawRating.match(/^(\d+(?:\.\d+)?)\s*[–-]\s*(\d+(?:\.\d+)?)$/);
-  const score=number(range?range[1]:rawRating,'Vintage score',{min:0,max:scale});
+  const numericRating=rawRating.replace(/\*$/, '').trim();
+  const range=numericRating.match(/^(\d+(?:\.\d+)?)\s*[–-]\s*(\d+(?:\.\d+)?)$/);
+  const score=number(range?range[1]:numericRating,'Vintage score',{min:0,max:scale});
   const scoreHigh=range?number(range[2],'Vintage upper score',{min:score,max:scale}):score;
   return {rawRating,ratingSystem:'points',score,scoreHigh,scale,normalizedScore:score/scale*100,normalization:`Original points / ${scale} × 100${range?'; conservative range lower bound':''}`};
 }
@@ -61,7 +62,24 @@ export function normalizeVintageAssessment(row, source, provenance) {
   const eligible=professional && Boolean(publication) && Boolean(provenance.sourceURL || sourceReference || source.isDemo) && !geography.conflict;
   const tags=Array.isArray(row.context_tags)?row.context_tags:String(row.context_tags || '').split(/[;|]/);
   if(tags.length>20 || tags.some(t=>String(t).length>100)) throw new Error('Vintage context is limited to 20 short documented tags.');
-  return {...provenance,...rating,vintage,publication,rawPublication,providerId:provider?.id || 'regional',professional,eligible,sourceReference,rawGeography:original,geography,country:geography.country,region:geography.region,subregion:geography.subregion,appellation:geography.appellation,type,style:geoKey(row.style),specificity:geography.level,provisional:row.provisional===true || String(row.provisional).toLowerCase()==='true',notes:String(row.notes || '').slice(0,1000),contextTags:tags.map(String).map(t=>t.trim()).filter(Boolean),warnings:[...geography.warnings,...(!eligible?['Professional publication and source URL/reference must be confirmed before use.']:[])],normalizationVersion:VINTAGE_POLICY.version};
+  const list=(value,label,normalize)=>{
+    const values=value==null?[]:Array.isArray(value)?value:String(value).split(/[;|]/);
+    if(values.length>20 || values.some(v=>typeof v!=='string' || v.length>250)) throw new Error(`Invalid vintage ${label} scope.`);
+    return [...new Set(values.map(normalize).filter(Boolean))];
+  };
+  const allowedStyles=list(row.allowed_styles ?? provenance.allowedStyles,'style',canonicalStyle);
+  const allowedAppellations=list(row.allowed_appellations ?? provenance.allowedAppellations,'appellation',v=>{
+    const node=geographyNode(v);
+    if(!node || node.level!=='appellation') throw new Error('Vintage scope requires a recognized appellation.');
+    return node.name;
+  });
+  const chartName=String(row.chart_name ?? provenance.chartName ?? '').slice(0,250);
+  const sourceDocument=String(row.source_document ?? provenance.sourceDocument ?? '').slice(0,250);
+  const sourcePage=row.source_page ?? provenance.sourcePage;
+  const drinkingStatus=String(row.drinking_status ?? provenance.drinkingStatus ?? '').trim();
+  if(drinkingStatus && !['NYR','Drink','Drink or Hold','Hold','Past peak'].includes(drinkingStatus)) throw new Error('Unknown source vintage drinking status.');
+  const sourceCategory=String(row.source_category ?? provenance.sourceCategory ?? '').slice(0,150);
+  return {...provenance,...rating,chartName,sourceDocument,sourcePage:sourcePage==null?null:number(sourcePage,'Source page',{min:1,max:10000,integer:true}),drinkingStatus,sourceCategory,allowedStyles,allowedAppellations,vintage,publication,rawPublication,providerId:provider?.id || 'regional',professional,eligible,sourceReference,rawGeography:original,geography,country:geography.country,region:geography.region,subregion:geography.subregion,appellation:geography.appellation,type,style:canonicalStyle(row.style),specificity:geography.level,provisional:row.provisional===true || String(row.provisional).toLowerCase()==='true',notes:String(row.notes || '').slice(0,1000),contextTags:tags.map(String).map(t=>t.trim()).filter(Boolean),warnings:[...geography.warnings,...(!eligible?['Professional publication and source URL/reference must be confirmed before use.']:[])],normalizationVersion:VINTAGE_POLICY.version};
 }
 export function vintageRecordKey(record) {
   return JSON.stringify([record.sourceId,geoKey(record.publication),record.vintage,record.geography.leafId,record.type,record.style || '',record.sourceReference || record.sourceURL]);
@@ -69,10 +87,10 @@ export function vintageRecordKey(record) {
 export function upsertVintage(state, record) {
   const previous=state.vintages.find(r=>r.recordKey===record.recordKey);
   if(previous && Date.parse(record.observedAt)<Date.parse(previous.observedAt)) throw new Error('Vintage update would overwrite a newer source assessment.');
-  if(previous && previous.rawRating===record.rawRating && previous.normalizedScore===record.normalizedScore && previous.notes===record.notes && previous.confidence===record.confidence && previous.eligible===record.eligible && previous.provisional===record.provisional && JSON.stringify(previous.mappingFields)===JSON.stringify(record.mappingFields) && JSON.stringify(previous.contextTags)===JSON.stringify(record.contextTags)) {
+  if(previous && ['chartName','sourceDocument','sourcePage','drinkingStatus','sourceCategory','allowedStyles','allowedAppellations'].every(k=>JSON.stringify(previous[k])===JSON.stringify(record[k])) && previous.rawRating===record.rawRating && previous.normalizedScore===record.normalizedScore && previous.notes===record.notes && previous.confidence===record.confidence && previous.eligible===record.eligible && previous.provisional===record.provisional && JSON.stringify(previous.mappingFields)===JSON.stringify(record.mappingFields) && JSON.stringify(previous.contextTags)===JSON.stringify(record.contextTags)) {
     previous.lastRetrievedAt=record.retrievedAt; previous.observedAt=record.observedAt; return previous;
   }
-  if(previous) { record.id=previous.id; record.revisions=[...(previous.revisions || []),{rawRating:previous.rawRating,normalizedScore:previous.normalizedScore,observedAt:previous.observedAt,retrievedAt:previous.retrievedAt,notes:previous.notes}].slice(-50); record.retrievedAt=previous.retrievedAt; record.lastRetrievedAt=record.observedAt; state.vintages[state.vintages.indexOf(previous)]=record; }
+  if(previous) { record.id=previous.id; record.revisions=[...(previous.revisions || []),{rawRating:previous.rawRating,normalizedScore:previous.normalizedScore,observedAt:previous.observedAt,retrievedAt:previous.retrievedAt,notes:previous.notes,drinkingStatus:previous.drinkingStatus,sourceCategory:previous.sourceCategory}].slice(-50); record.retrievedAt=previous.retrievedAt; record.lastRetrievedAt=record.observedAt; state.vintages[state.vintages.indexOf(previous)]=record; }
   else state.vintages.push(record);
   return record;
 }
@@ -86,9 +104,10 @@ export function matchVintage(wine, record, geography=canonicalGeography(wine)) {
   const path=geography.path, index=path.findIndex(n=>n.id===record.geography?.leafId);
   if(index<0) reasons.push('Assessment geography is not an ancestor of this wine');
   if(record.type!=='All' && (geography.type==='Unknown' || record.type!==geography.type)) reasons.push('Wine type unknown or different');
-  if(record.style && record.style!==geography.style) reasons.push('Variety/style unknown or different');
+  if((record.style && record.style!==geography.style) || (record.allowedStyles?.length && !record.allowedStyles.includes(geography.style))) reasons.push('Variety/style unknown or different');
+  if(record.allowedAppellations?.length && !record.allowedAppellations.some(name=>geography.path.some(n=>n.id===geographyNode(name)?.id))) reasons.push('Wine is outside the chart’s stated appellation scope');
   if(path.some(n=>n.id==='champagne') && record.geography?.level==='country') reasons.push('Champagne requires Champagne-specific vintage context');
-  return {accepted:!reasons.length,reviewable:!reasons.length,confidence:!reasons.length?record.confidence:0,depth:index+1,typeSpecific:record.type!=='All',styleSpecific:Boolean(record.style),reasons:reasons.length?reasons:['Geography, vintage and wine type are compatible']};
+  return {accepted:!reasons.length,reviewable:!reasons.length,confidence:!reasons.length?record.confidence:0,depth:index+1,typeSpecific:record.type!=='All',styleSpecific:Boolean(record.style || record.allowedStyles?.length),reasons:reasons.length?reasons:['Geography, vintage and wine type are compatible']};
 }
 const median=values=>{const s=values.toSorted((a,b)=>a-b),i=Math.floor(s.length/2);return s.length%2?s[i]:(s[i-1]+s[i])/2;};
 export function wineGeography(state, wine) {

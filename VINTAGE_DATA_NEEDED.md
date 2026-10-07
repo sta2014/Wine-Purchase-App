@@ -1,6 +1,18 @@
-# Vintage data to collect later
+# Vintage chart collection and updates
 
-We can use stored professional vintage charts without a live feed. The user will collect spreadsheets or screenshots another time; no action is needed from them now. Once supplied, prepare the data for the existing Vintage Intelligence importer, retain provenance, validate matching, and identify any unreadable or ambiguous entries before using them. Do not invent ratings or treat test fixtures as real chart data.
+We can use stored professional vintage charts without a live feed. Fifteen Wine Spectator screenshot PDFs were supplied on October 7, 2026 and transcribed into a private import file containing 466 assessments. The app does not bundle these charts; import the prepared file on the device holding the inventory. Once supplied, prepare the data for the existing Vintage Intelligence importer, retain provenance, validate matching, and identify any unreadable or ambiguous entries before using them. Do not invent ratings or treat test fixtures as real chart data.
+
+## Supplied chart coverage
+
+- Bordeaux Left Bank reds (Médoc, Pessac-Léognan) and Right Bank reds (Pomerol, Saint-Émilion) match separately.
+- California charts are Cabernet Sauvignon/Franc, Pinot Noir and Chardonnay. The file called California White is not a general white-wine chart.
+- Red Burgundy is specifically Côte de Nuits; White Burgundy is broader. Do not assign the Côte de Nuits chart to Côte de Beaune reds.
+- Tuscany covers Chianti/Chianti Classico separately from Brunello. Piedmont is conservatively limited to Barolo/Barbaresco, the appellations discussed in its notes.
+- Other supplied charts cover Northern/Southern Rhône (both colors), vintage Champagne, Germany Riesling and Sauternes.
+- Preliminary ranges retain both bounds; scoring uses the lower bound. The Pinot Noir 2020 asterisk remains visible with its smoke-context note.
+- Original PDF filename/page, rating, source category and regional drinking status are retained. Edition dates were not shown; import time is not a claimed publication date.
+
+For future updates, supply replacement PDFs/screenshots or spreadsheets. Keep stable chart/year source references when preparing the replacement import; ratings update in place and retain previous observations. Missing years and unsupported styles stay unassessed. Broader geography fallbacks are disclosed.
 
 ## Preferred format
 
