@@ -3,7 +3,7 @@ import { CRITICS, criticColumn } from './critics.js';
 import { parsePackageFormat } from './identity.js';
 const aliases = {
   wine: 'raw_title', winename: 'raw_title', winedescription: 'raw_title', description: 'raw_title', productname: 'raw_title', name: 'raw_title', title: 'raw_title', rawtitle: 'raw_title',
-  producer: 'producer', winery: 'producer', estate: 'producer', cuvee: 'cuvee', vineyard: 'vineyard', appellation: 'appellation', region: 'region', country: 'country',
+  regionname: 'region', priceusd: 'price', scores: 'ratings', producer: 'producer', winery: 'producer', estate: 'producer', cuvee: 'cuvee', vineyard: 'vineyard', appellation: 'appellation', region: 'region', country: 'country',
   vintage: 'vintage', year: 'vintage', vintageyear: 'vintage', bottleml: 'bottle_ml', bottlesizeml: 'bottle_ml', sizeml: 'bottle_ml', size: 'format', bottlesize: 'format', format: 'format', packageformat: 'format', packagesize: 'format',
   packcount: 'pack_count', packsize: 'pack_count', bottlecount: 'pack_count', packaging: 'packaging', type: 'type', winetype: 'type', color: 'type', colour: 'type',
   price: 'price', askingprice: 'price', retailprice: 'price', unitprice: 'price', bottleprice: 'unit_price', priceperbottle: 'unit_price', currency: 'currency',
@@ -16,7 +16,8 @@ export const IMPORT_FIELDS = [...new Set(Object.values(aliases)), 'ratings', 're
 export const IMPORT_LABELS = { ...Object.fromEntries(CRITICS.map(c => [c.id, `${c.name} reported score`])), ratings: 'Combined ratings (publication + score)', raw_title: 'Wine name', producer: 'Producer / winery', cuvee: 'Wine / cuvée', vintage: 'Vintage year', bottle_ml: 'Bottle volume (ml)', format: 'Package format (e.g. 6x750ml or 1.5L)', pack_count: 'Bottles per package', type: 'Wine color / type', price: 'Asking price', unit_price: 'Price per individual bottle', available_quantity: 'Available packages', external_id: 'Retailer SKU / product ID', source_url: 'Source link', observed_at: 'Observation date / time', critic: 'Critic / publication', scale: 'Score scale', drink_from: 'Drinking window start year', drink_to: 'Drinking window end year' };
 export function suggestColumns(header) {
   const used = new Set();
-  return header.map(value => { const key = String(value ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^a-z0-9]/g, ''); const field = aliases[key] || criticColumn(value) || ''; if (used.has(field)) return ''; used.add(field); return field; });
+  const retailerLayout = String(header[0] || '').toLowerCase().trim() === 'region name' && String(header[1] || '').toLowerCase().trim() === 'vintage' && String(header[2] || '').toLowerCase().trim() === 'size' && !header[3] && /price.*usd/i.test(String(header[4])) && /^scores$/i.test(String(header[5]));
+  return header.map((value, index) => { const key = String(value ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^a-z0-9]/g, ''); const field = retailerLayout && index === 3 ? 'raw_title' : aliases[key] || criticColumn(value) || ''; if (used.has(field)) return ''; used.add(field); return field; });
 }
 export function suggestHeader(data) {
   let best = 0, score = -1;

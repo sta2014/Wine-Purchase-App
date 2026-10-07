@@ -6,6 +6,12 @@ import { suggestColumns, suggestHeader, mapSpreadsheet, checkWorkbook } from '..
 import { ingestDataset, initialState } from '../src/engine/ingestion.js';
 import { identifyWine, matchWine, packageSummary } from '../src/engine/identity.js';
 
+test('Flickinger six-column layout identifies its blank wine header without guessing other blanks', () => {
+  const headers = ['Region Name','Vintage','Size',null,'Price (USD)','Scores'];
+  assert.deepEqual(suggestColumns(headers), ['region','vintage','format','raw_title','price','ratings']);
+  assert.equal(suggestColumns(['Region',null,'Price'])[1], '');
+});
+
 test('real XLSX fixture reads multiple sheets, detects retailer headers, and normalizes package totals', async () => {
   const buffer = readFileSync(new URL('./fixtures/synthetic-retailer-export.xlsx', import.meta.url));
   checkWorkbook(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength));

@@ -1,6 +1,6 @@
 import { ingestDataset, captureScores, validateBackup } from './ingestion.js';
 import { validateSource } from './sources.js';
-import { validatePreferences } from './ranking.js';
+import { validatePreferences, matchReview } from './ranking.js';
 import { matchWine, identifyWine } from './identity.js';
 export function applyAction(state, action, now = new Date().toISOString()) {
   if (!action || typeof action !== 'object') throw new Error('Invalid engine action.');
@@ -49,7 +49,8 @@ export function applyAction(state, action, now = new Date().toISOString()) {
     const item = [...next.market, ...next.reviews].find(r => r.id === action.observationId);
     const wine = next.wines[action.wineId];
     if (!item || !wine || !['approved', 'rejected'].includes(action.decision)) throw new Error('Invalid match review.');
-    const match = matchWine(wine, item.wine || next.wines[item.wineId], { format: next.market.includes(item) || item.formatSpecific === true });
+    const listing = next.listings.find(l=>l.wineId===wine.id && l.sourceId===item.sourceId);
+    const match = listing && next.reviews.includes(item) ? matchReview(next, listing, item) : matchWine(wine, item.wine || next.wines[item.wineId], { format: next.market.includes(item) || item.formatSpecific === true });
     if (action.decision === 'approved' && !match.reviewable && !match.automatic) throw new Error('Vintage, producer, or package conflicts cannot be overridden by match review.');
     next.decisions[item.id] = { wineId: wine.id, state: action.decision, at: now, confidence: match.confidence, note: String(action.note || 'Reviewed in terminal').slice(0, 1000) };
   } else throw new Error('Unknown engine action.');

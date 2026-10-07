@@ -73,7 +73,10 @@ test('large inventory exceeds the old storage quota but saves, reloads and resto
     catch (error) { return error.name === 'QuotaExceededError'; }
   }, raw);
   expect(quotaFailed).toBe(true);
-  await page.reload(); await expect(page.locator('#engine-results .terminal-table tbody tr')).toHaveCount(900);
+  await page.reload(); await expect(page.locator('#engine-results .terminal-table tbody tr')).toHaveCount(100);
+  await expect(page.locator('#engine-result-count')).toContainText('900');
+  await page.getByRole('button', {name:'Next page',exact:true}).click();
+  await expect(page.locator('.rank-number').first()).toHaveText('101');
   await importRows(page, 'flickinger', rows);
   const promise = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export engine backup', exact: true }).click();

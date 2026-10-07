@@ -134,6 +134,7 @@ export function ingestDataset(state, sourceId, dataset, now = new Date().toISOSt
   if (source.category === 'inventory') normalized = identifyListings(normalized, source, state.listings);
   const next = structuredClone(state);
   const reviewIndex = new Map(next.reviews.map(r=>[reviewKey(r), r]));
+  const listingIndexes = new Map(next.listings.map((l,i)=>[l.id,i]));
   const runId = crypto.randomUUID();
   const ids = new Set();
   for (const item of normalized) {
@@ -148,11 +149,11 @@ export function ingestDataset(state, sourceId, dataset, now = new Date().toISOSt
     ids.add(id);
     const record = { ...item, id, runId };
     if (source.category === 'inventory') {
-      const index = next.listings.findIndex(l => l.id === id);
+      const index = listingIndexes.get(id) ?? -1;
       const old = next.listings[index];
       if (old && Date.parse(item.observedAt) < Date.parse(old.observedAt)) throw new Error('Inventory snapshot would overwrite a newer observation.');
       const listing = { ...record, firstSeen: old?.firstSeen ?? now, lastSeen: now };
-      if (index < 0) next.listings.push(listing); else next.listings[index] = listing;
+      if (index < 0) { listingIndexes.set(id,next.listings.length); next.listings.push(listing); } else next.listings[index] = listing;
       next.history.push({ ...listing, event: old ? 'observed' : 'first_seen' });
     } else if (['critic', 'community'].includes(source.category)) upsertReview(next, record, reviewIndex);
     else next[source.category === 'market' ? 'market' : 'vintages'].push(record);
@@ -160,7 +161,7 @@ export function ingestDataset(state, sourceId, dataset, now = new Date().toISOSt
   let criticImportedCount = 0, criticWarningCount = 0;
   if (source.category === 'inventory') for (let i = 0; i < normalized.length; i++) {
     const raw = rows[inputIndexes[i]], extracted = retailerScores(raw), item = normalized[i];
-    const listing = next.listings.find(l => l.id === item.id);
+    const listing = next.listings[listingIndexes.get(item.id)];
     listing.reportedRatings = extracted.rawRatings;
     listing.criticWarnings = extracted.warnings;
     criticWarningCount += extracted.warnings.length;

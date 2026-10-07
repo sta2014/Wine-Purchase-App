@@ -10,14 +10,20 @@ export function latest(records, key) {
 }
 const median = values => { const sorted = [...values].sort((a, b) => a - b); const mid = Math.floor(sorted.length / 2); return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2; };
 const clamp = value => Math.max(0, Math.min(100, value));
-function matched(state, wine, item, format) {
+function matched(state, wine, item, format, inventorySourceId) {
   const other = item.wine || state.wines[item.wineId];
   if (!other) return { accepted: false, confidence: 0, reasons: ['Unknown canonical wine'] };
-  const match = matchWine(wine, other, { format });
+  // A retailer's own reported score is tied to its exact inventory identity.
+  // This uses no cross-source producer guess and never verifies the score itself.
+  const localReport = item.verification === 'retailer_reported' && item.sourceId === inventorySourceId && state.sources.find(s=>s.id===item.sourceId)?.category === 'inventory' && wine.beverageId === other.beverageId && (wine.vintage != null || ['non-vintage','multi-vintage'].includes(wine.vintageKind)) && ![...wine.warnings,...other.warnings].some(w=>/conflict|Multiple/.test(w)) && (wine.type === other.type || wine.type === 'Unknown' || other.type === 'Unknown') && (!wine.country || !other.country || normalized(wine.country)===normalized(other.country));
+  const match = localReport && !format ? {confidence:1,automatic:true,reviewable:false,reasons:['Exact retailer inventory identity; score independently unverified']} : matchWine(wine, other, { format });
   const decision = state.decisions[item.id];
   const approved = decision?.state === 'approved' && decision.wineId === wine.id && match.reviewable;
   const rejected = decision?.state === 'rejected' && decision.wineId === wine.id;
   return { ...match, accepted: !rejected && (match.automatic || approved) && match.confidence >= (approved ? .75 : state.preferences.matchThreshold), manuallyApproved: approved };
+}
+export function matchReview(state, listing, review) {
+  return matched(state, state.wines[listing.wineId], review, review.formatSpecific === true, listing.sourceId);
 }
 export function analyzeListing(state, listing, now = new Date(), reviewIndex = null) {
   const wine = state.wines[listing.wineId];
@@ -26,7 +32,7 @@ export function analyzeListing(state, listing, now = new Date(), reviewIndex = n
   const exclusions = [], market = [], pendingMatches = [];
   const observations = latest(state.market.filter(r => active.has(r.sourceId)), r => JSON.stringify([r.sourceId, r.merchant, r.wineId, r.currency, r.priceTerms, r.saleType]));
   for (const observation of observations) {
-    const match = matched(state, wine, observation, true);
+    const match = matched(state, wine, observation, true, listing.sourceId);
     if (match.reviewable && !match.accepted && !state.decisions[observation.id]) pendingMatches.push({ observation, ...match });
     if (!match.accepted) { if (state.wines[observation.wineId]?.canonicalProducer === wine.canonicalProducer) exclusions.push({ id: observation.id, source: observation.sourceName, reason: match.reasons.join('; ') }); continue; }
     let reason = '';
@@ -43,14 +49,15 @@ export function analyzeListing(state, listing, now = new Date(), reviewIndex = n
   const marketEvidence = latest(market, r => normalized(r.merchant));
   const referencePrice = marketEvidence.length ? median(marketEvidence.map(r => r.unitPrice)) : null;
   const discount = referencePrice == null ? null : (referencePrice - listing.unitPrice) / referencePrice;
-  const reviewCandidates = (reviewIndex?.get(wine.canonicalProducer) || (reviewIndex ? [] : state.reviews)).filter(r => active.has(r.sourceId));
-  for (const r of reviewCandidates) { const match = matched(state, wine, r, r.formatSpecific === true); if (match.reviewable && !match.accepted && !state.decisions[r.id]) pendingMatches.push({ observation: r, ...match }); }
-  const reviews = reviewCandidates.filter(r => {
-    const match = matched(state, wine, r, r.formatSpecific === true);
-    if (!match.accepted) return false;
-    if (r.confidence < state.preferences.matchThreshold) { exclusions.push({ id: r.id, source: r.sourceName, reason: 'Review data confidence below threshold' }); return false; }
-    return true;
-  }).map(r => ({ ...r, matchConfidence: matched(state, wine, r, r.formatSpecific === true).confidence, manuallyApproved: matched(state, wine, r, r.formatSpecific === true).manuallyApproved }));
+  const reviewCandidates = (reviewIndex?.get(reviewIndexKey(wine)) || (reviewIndex ? [] : state.reviews)).filter(r => active.has(r.sourceId));
+  const reviews = [];
+  for (const r of reviewCandidates) {
+    const match = matched(state, wine, r, r.formatSpecific === true, listing.sourceId);
+    if (match.reviewable && !match.accepted && !state.decisions[r.id]) pendingMatches.push({observation:r,...match});
+    if (!match.accepted) continue;
+    if (r.confidence < state.preferences.matchThreshold) { exclusions.push({id:r.id,source:r.sourceName,reason:'Review data confidence below threshold'}); continue; }
+    reviews.push({...r,matchConfidence:match.confidence,manuallyApproved:match.manuallyApproved});
+  }
   const professional = reviews.filter(r => r.kind === 'critic' && !isCommunity(r.publication || r.critic) && r.score != null);
   const criticComposite = compositeCritics(professional);
   const quality = criticComposite.score, criticComponent = qualityComponent(quality);
@@ -89,12 +96,16 @@ export function analyzeListing(state, listing, now = new Date(), reviewIndex = n
     score: staleInventory ? 0 : clamp(score + preferenceBonus), preferenceBonus, staleInventory, warnings,
     recommendation: staleInventory ? 'Confirm stale inventory' : coverage < .5 ? 'Research before buying' : discount != null && discount >= .1 && quality != null && quality >= 90 ? 'Compelling opportunity' : discount != null && discount < 0 ? 'Above observed market' : 'Consider with context' };
 }
+const reviewIndexKey = wine => JSON.stringify([wine.canonicalProducer || wine.beverageId, wine.vintage ?? wine.vintageKind ?? 'unknown']);
 export function rankInventory(state, filters = {}, now = new Date()) {
   const active = new Set(state.sources.filter(s => s.enabled).map(s => s.id));
-  const search = normalized(filters.query || '');
   const reviewIndex = new Map();
-  for(const r of state.reviews) { const producer=(r.wine || state.wines[r.wineId])?.canonicalProducer; if(!reviewIndex.has(producer)) reviewIndex.set(producer,[]); reviewIndex.get(producer).push(r); }
-  const rows = state.listings.filter(l => active.has(l.sourceId)).map(l => analyzeListing(state, l, now, reviewIndex)).filter(a => {
+  for(const r of state.reviews) { const other=r.wine || state.wines[r.wineId]; if(!other) continue; const producer=reviewIndexKey(other); if(!reviewIndex.has(producer)) reviewIndex.set(producer,[]); reviewIndex.get(producer).push(r); }
+  return filterRankedInventory(state.listings.filter(l=>active.has(l.sourceId)).map(l=>analyzeListing(state,l,now,reviewIndex)),filters);
+}
+export function filterRankedInventory(analyses, filters = {}) {
+  const search = normalized(filters.query || '');
+  const rows = analyses.filter(a => {
     const { listing: l, wine: w } = a;
     if (filters.available !== false && !l.isAvailable) return false;
     if (filters.source && l.sourceId !== filters.source) return false;

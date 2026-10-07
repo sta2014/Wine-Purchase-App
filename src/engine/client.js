@@ -47,7 +47,13 @@ export class EngineClient {
     await this.ready;
     if (this.mode === 'browser') {
       if (this.blocked && action.type !== 'restore') throw new Error(this.error);
-      const next = applyAction(this.state, action);
+      const next = action.type === 'import' && typeof Worker !== 'undefined'
+        ? await new Promise((resolve, reject) => {
+          const worker = new Worker(new URL('./import-worker.js', import.meta.url), { type: 'module' });
+          worker.onmessage = ({ data }) => { worker.terminate(); data.error ? reject(new Error(data.error)) : resolve(data.state); };
+          worker.onerror = event => { worker.terminate(); reject(new Error(event.message || 'Import processing failed. Previous inventory is unchanged.')); };
+          worker.postMessage({ state: this.state, action });
+        }) : applyAction(this.state, action);
       try { await this.storage.setItem(ENGINE_KEY, next, this.blocked && action.type === 'restore' ? undefined : this.state.revision); }
       catch (error) {
         if (error.name === 'QuotaExceededError') throw new Error('Browser storage is full. Your previous saved inventory is unchanged. Export a backup and free device storage before retrying.');

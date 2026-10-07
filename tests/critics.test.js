@@ -16,6 +16,22 @@ const ingest=(state,source,rows,time=at)=>ingestDataset(state,source,{rows},time
 const inventory=()=>ingest(initialState(),'flickinger',[row()]);
 const match=(a,b,format=false)=>matchWine(identifyWine(a),identifyWine(b),{format});
 
+test('unknown producers use only their own exact retailer-reported scores, never external guesses',()=>{
+  const rows=Array.from({length:1200},(_,i)=>({raw_title:`Unidentified Synthetic Lot ${i}`,vintage:2019,format:'6x750ml',price:400,ratings:i%2?'WA 94':'WA 98'}));
+  let s=ingest(initialState(),'flickinger',rows);
+  const ranked=rankInventory(s,{},now);
+  assert.equal(ranked.length,1200);
+  assert.ok(ranked.every(a=>a.professional.length===1 && a.quality===(Number(a.wine.rawTitle.match(/Lot (\d+)/)[1])%2?94:98) && !a.professional[0].verified));
+  const target=s.listings[0],review=s.reviews[0];
+  s=applyAction(s,{type:'decision',wineId:target.wineId,observationId:review.id,decision:'rejected'},at);
+  assert.equal(rankInventory(s,{},now).find(a=>a.listing.id===target.id).quality,null);
+  s=applyAction(s,{type:'decision',wineId:target.wineId,observationId:review.id,decision:'approved'},at);
+  assert.equal(rankInventory(s,{},now).find(a=>a.listing.id===target.id).quality,98);
+  s=ingest(s,'critic-import',[{...rows[0],critic:'JS',score:100}]);
+  assert.equal(rankInventory(s,{},now).find(a=>a.listing.id===target.id).quality,98);
+  assert.equal(rankInventory(s,{verifiedOnly:true},now).length,0);
+});
+
 test('critic matching: exact Bordeaux château and curated producer aliases',()=>{
   const a={raw_title:'Château Léoville Las Cases 2019 750ml'},b={raw_title:'2019 Ch. Leoville-Las-Cases St-Julien',bottle_ml:1500};
   assert.equal(match(a,b).confidence,1); assert.equal(match(a,b,true).automatic,false);
