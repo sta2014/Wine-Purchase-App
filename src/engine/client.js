@@ -1,12 +1,34 @@
 import { ENGINE_KEY, initialState, validateBackup } from './ingestion.js';
 import { applyAction } from './actions.js';
+import { BrowserEngineStore } from './browser-store.js';
 export class EngineClient {
-  constructor(storage = localStorage) {
+  constructor(storage = new BrowserEngineStore()) {
     this.storage = storage; this.mode = 'browser'; this.error = ''; this.base = ''; this.token = '';
-    try { const raw = storage.getItem(ENGINE_KEY); this.state = raw ? validateBackup(raw) : initialState(); }
-    catch { this.state = initialState(); this.error = 'Saved engine data cannot be read. Export a recovery copy before restoring a valid backup. Imports and edits are blocked to protect existing data.'; this.blocked = true; }
+    this.state = initialState(); this.loaded = false; this.actions = Promise.resolve(); this.ready = this.initialize();
   }
-  async connect(base = `${import.meta.env.BASE_URL}api`, token = '') {
+  async initialize() {
+    try {
+      let raw = await this.storage.getItem(ENGINE_KEY);
+      const legacy = !raw && this.storage.browserDatabase ? this.storage.getLegacy() : null;
+      raw ||= legacy; this.recoveryRaw = raw;
+      this.state = raw ? validateBackup(raw) : initialState();
+      if (legacy) {
+        await this.storage.setItem(ENGINE_KEY, this.state, 0);
+        // Remove only the old engine snapshot, after the new transaction commits.
+        try { this.storage.removeLegacy(); } catch { /* A retained copy is harmless. */ }
+      }
+      this.recoveryRaw = null;
+    } catch (error) {
+      if (!this.recoveryRaw && this.storage.browserDatabase) { try { this.recoveryRaw = this.storage.getLegacy(); } catch {} }
+      this.error = `Saved engine data could not be loaded or migrated. Imports and edits are blocked to protect it. Export a recovery backup before restoring. ${error.message}`; this.blocked = true;
+    } finally { this.loaded = true; }
+  }
+  connect(base = `${import.meta.env.BASE_URL}api`, token = '') {
+    const work = this.actions.then(() => this.performConnect(base, token));
+    this.actions = work.catch(() => {}); return work;
+  }
+  async performConnect(base, token) {
+    await this.ready;
     if (/^https?:/.test(base)) {
       const u = new URL(base);
       if (u.protocol !== 'https:' && !['127.0.0.1', 'localhost'].includes(u.hostname)) throw new Error('Remote engines require HTTPS.');
@@ -15,14 +37,24 @@ export class EngineClient {
     const response = await fetch(base.replace(/\/$/, '') + '/engine', { headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: AbortSignal.timeout(10000) });
     if (!response.ok) throw new Error(response.status === 401 ? 'Engine authentication required.' : `Engine unavailable (HTTP ${response.status}).`);
     const state = validateBackup(await response.json());
-    this.base = base.replace(/\/$/, ''); this.token = token; this.mode = 'server'; this.state = state;
+    this.base = base.replace(/\/$/, ''); this.token = token; this.mode = 'server'; this.state = state; this.blocked = false; this.error = '';
   }
-  async action(action) {
+  action(action) {
+    const work = this.actions.then(() => this.performAction(action));
+    this.actions = work.catch(() => {}); return work;
+  }
+  async performAction(action) {
+    await this.ready;
     if (this.mode === 'browser') {
       if (this.blocked && action.type !== 'restore') throw new Error(this.error);
       const next = applyAction(this.state, action);
-      this.storage.setItem(ENGINE_KEY, JSON.stringify(next));
-      this.state = next; this.blocked = false; this.error = ''; return;
+      try { await this.storage.setItem(ENGINE_KEY, next, this.blocked && action.type === 'restore' ? undefined : this.state.revision); }
+      catch (error) {
+        if (error.name === 'QuotaExceededError') throw new Error('Browser storage is full. Your previous saved inventory is unchanged. Export a backup and free device storage before retrying.');
+        throw error;
+      }
+      if (this.storage.browserDatabase) { try { this.storage.removeLegacy(); } catch {} }
+      this.state = next; this.recoveryRaw = null; this.blocked = false; this.error = ''; return;
     }
     const response = await fetch(this.base + '/action', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}) }, body: JSON.stringify({ action, expectedRevision: this.state.revision }) });
     const result = await response.json();

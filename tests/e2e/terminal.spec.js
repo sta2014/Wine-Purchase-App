@@ -1,5 +1,14 @@
 import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
+import { initialState, ingestDataset } from '../../src/engine/ingestion.js';
+
+async function readEngineRaw(page) {
+  return page.evaluate(async () => {
+    const db = await new Promise((resolve, reject) => { const r = indexedDB.open('wine-intelligence', 1); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });
+    try { return await new Promise((resolve, reject) => { const r = db.transaction('engine').objectStore('engine').get('wine-intelligence.v1'); r.onsuccess = () => resolve(r.result == null ? null : JSON.stringify(r.result)); r.onerror = () => reject(r.error); }); }
+    finally { db.close(); }
+  });
+}
 
 const wine = { raw_title: 'Example Estate Reserve 2019', producer: 'Example Estate', cuvee: 'Reserve', vintage: 2019, bottle_ml: 750, pack_count: 1, packaging: 'loose', type: 'Red', region: 'Bordeaux', country: 'France' };
 async function importRows(page, sourceId, rows, completeSnapshot = false) {
@@ -15,9 +24,87 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/');
 });
 
+test('legacy engine data migrates to IndexedDB without changing journal data', async ({ page }) => {
+  const legacy = ingestDataset(initialState(), 'flickinger', { rows: [{ ...wine, price: 80 }] });
+  await page.getByRole('button', { name: 'Personal journal', exact: true }).click();
+  await page.getByRole('button', { name: 'Add a wine', exact: true }).click();
+  await page.getByLabel('Wine name').fill('Keep my journal');
+  await page.getByRole('button', { name: 'Save wine', exact: true }).click();
+  const journal = await page.evaluate(() => localStorage.getItem('wine-journal.v1'));
+  await page.evaluate(state => localStorage.setItem('wine-intelligence.v1', JSON.stringify(state)), legacy);
+  await page.reload();
+  await page.getByRole('button', { name: 'Buying terminal', exact: true }).click();
+  await expect(page.locator('#engine-results .terminal-table tbody tr')).toHaveCount(1);
+  expect(JSON.parse(await readEngineRaw(page))).toEqual(legacy);
+  expect(await page.evaluate(() => localStorage.getItem('wine-intelligence.v1'))).toBeNull();
+  expect(await page.evaluate(() => localStorage.getItem('wine-journal.v1'))).toEqual(journal);
+  await page.reload(); await expect(page.locator('#engine-results .terminal-table tbody tr')).toHaveCount(1);
+});
+
+test('failed migration retains the original data and exports a recovery copy', async ({ page }) => {
+  const legacy = JSON.stringify(ingestDataset(initialState(), 'flickinger', { rows: [{ ...wine, price: 80 }] }));
+  await page.evaluate(raw => localStorage.setItem('wine-intelligence.v1', raw), legacy);
+  await page.addInitScript(() => { IDBObjectStore.prototype.put = () => { throw new DOMException('Full', 'QuotaExceededError'); }; });
+  await page.reload();
+  await expect(page.locator('#engine-notice')).toContainText('blocked to protect it');
+  expect(await page.evaluate(() => localStorage.getItem('wine-intelligence.v1'))).toBe(legacy);
+  expect(await readEngineRaw(page)).toBeNull();
+  const promise = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export engine backup', exact: true }).click();
+  expect((await readFile(await (await promise).path())).toString()).toBe(legacy);
+});
+
+test('corrupt legacy data stays intact and can be exported without silently starting a new inventory', async ({ page }) => {
+  const bad = '{broken original inventory';
+  await page.evaluate(raw => localStorage.setItem('wine-intelligence.v1', raw), bad);
+  await page.reload(); await expect(page.locator('#engine-notice')).toContainText('blocked to protect it');
+  expect(await page.evaluate(() => localStorage.getItem('wine-intelligence.v1'))).toBe(bad);
+  expect(await readEngineRaw(page)).toBeNull();
+});
+
+test('large inventory exceeds the old storage quota but saves, reloads and restores with history', async ({ page }) => {
+  test.setTimeout(90000);
+  const rows = Array.from({ length: 900 }, (_, i) => ({ ...wine, raw_title: `Example Estate Lot ${i} ${'Reserve '.repeat(20)} 2019 750ml`, cuvee: `Lot ${i} ${'Reserve '.repeat(20)}`, price: 80, available_quantity: 3 }));
+  await importRows(page, 'flickinger', rows);
+  const raw = await readEngineRaw(page);
+  expect(raw.length).toBeGreaterThan(5 * 1024 * 1024);
+  const quotaFailed = await page.evaluate(value => {
+    try { localStorage.setItem('quota-proof', value); localStorage.removeItem('quota-proof'); return false; }
+    catch (error) { return error.name === 'QuotaExceededError'; }
+  }, raw);
+  expect(quotaFailed).toBe(true);
+  await page.reload(); await expect(page.locator('#engine-results .terminal-table tbody tr')).toHaveCount(900);
+  await importRows(page, 'flickinger', rows);
+  const promise = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export engine backup', exact: true }).click();
+  const buffer = await readFile(await (await promise).path());
+  expect(buffer.length).toBeGreaterThan(10 * 1024 * 1024);
+  page.on('dialog', dialog => dialog.accept());
+  await page.locator('#engine-backup-file').setInputFiles({ name: 'large-backup.json', mimeType: 'application/json', buffer });
+  await expect(page.locator('#engine-notice')).toContainText('Engine backup restored');
+  await page.reload();
+  const saved = JSON.parse(await readEngineRaw(page));
+  expect(saved.listings).toHaveLength(900); expect(saved.history).toHaveLength(1800);
+  expect(await page.evaluate(() => localStorage.getItem('wine-intelligence.v1'))).toBeNull();
+});
+
+test('a stale browser tab cannot overwrite a newer committed inventory', async ({ page, context }) => {
+  await importRows(page, 'flickinger', [{ ...wine, price: 80 }]);
+  const other = await context.newPage();
+  await other.route('**/api/**', route => route.fulfill({ status: 404, contentType: 'application/json', body: '{}' }));
+  await other.goto('/'); await expect(other.locator('#engine-results .terminal-table tbody tr')).toHaveCount(1);
+  await importRows(page, 'flickinger', [{ ...wine, price: 60 }]);
+  await other.getByRole('button', { name: 'Import data', exact: true }).click();
+  await other.getByLabel('Excel, CSV or JSON file').setInputFiles({ name: 'stale.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify([{ ...wine, price: 90 }])) });
+  await other.getByRole('button', { name: 'Validate and import', exact: true }).click();
+  await expect(other.locator('#engine-form-message')).toContainText('Inventory changed in another tab');
+  expect(JSON.parse(await readEngineRaw(page)).listings[0].price).toBe(60);
+  await other.close();
+});
+
 test('price research uses exact package queries and leaves verified comparisons unchanged', async ({ page }) => {
   await importRows(page, 'flickinger', [{ ...wine, raw_title: 'Example Estate Reserve 2019 6x750ml OWC', pack_count: 6, packaging: 'owc', price: 480, currency: 'USD' }]);
-  const before = await page.evaluate(() => localStorage.getItem('wine-intelligence.v1'));
+  const before = await readEngineRaw(page);
   await page.getByRole('button', { name: 'Research prices', exact: true }).click();
   const dialog = page.locator('#engine-dialog');
   await expect(dialog.getByLabel('Wine web search query')).toHaveValue(/2019 750ml 6 bottles original wooden case/);
@@ -26,13 +113,13 @@ test('price research uses exact package queries and leaves verified comparisons 
   await expect(dialog.getByRole('button', { name: 'Find retailer results' })).toBeDisabled();
   await expect(dialog).toContainText('connect an engine');
   await page.locator('#engine-dialog-close').click();
-  expect(await page.evaluate(() => localStorage.getItem('wine-intelligence.v1'))).toEqual(before);
+  expect(await readEngineRaw(page)).toEqual(before);
   await expect(page.locator('.terminal-table tbody tr')).toContainText('0 current merchants');
 });
 
 test('connected search renders escaped unverified leads without promoting snippet prices', async ({ page }) => {
   await importRows(page, 'flickinger', [{ ...wine, price: 80, currency: 'USD' }]);
-  const state = JSON.parse(await page.evaluate(() => localStorage.getItem('wine-intelligence.v1')));
+  const state = JSON.parse(await readEngineRaw(page));
   let researched = '';
   await page.route('https://engine.example/api/**', async route => {
     if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'content-type', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' } });
@@ -53,7 +140,7 @@ test('connected search renders escaped unverified leads without promoting snippe
   expect(researched).toEqual(state.listings[0].wineId);
   await page.locator('#engine-dialog-close').click();
   await expect(page.locator('.terminal-table tbody tr')).toContainText('0 current merchants');
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('wine-intelligence.v1')).market)).toHaveLength(0);
+  expect(JSON.parse(await readEngineRaw(page)).market).toHaveLength(0);
 });
 
 test('inventory, enrichment, filtering, explanations and source switches persist', async ({ page }) => {
@@ -125,23 +212,23 @@ test('synthetic example is isolated and preferences change ranking', async ({ pa
   await expect(page.locator('.terminal-table tbody tr').first()).toContainText('96.0');
   await page.getByRole('button', { name: 'Return to my inventory' }).click();
   await expect(page.locator('.terminal-table tbody tr')).toHaveCount(0);
-  expect(await page.evaluate(() => localStorage.getItem('wine-intelligence.v1'))).toBeNull();
+  expect(await readEngineRaw(page)).toBeNull();
 });
 
 test('invalid imports and storage failures cannot report success or overwrite data', async ({ page }) => {
   await importRows(page, 'flickinger', [{ ...wine, price: 80 }]);
-  const before = await page.evaluate(() => localStorage.getItem('wine-intelligence.v1'));
+  const before = await readEngineRaw(page);
   await page.getByRole('button', { name: 'Import data', exact: true }).click();
   await page.getByLabel('Excel, CSV or JSON file').setInputFiles({ name: 'bad.csv', mimeType: 'text/csv', buffer: Buffer.from('raw_title,price\nBad wine,not-a-price') });
   await page.getByRole('button', { name: 'Validate and import' }).click();
   await expect(page.locator('#engine-form-message')).toContainText('Row 1');
-  expect(await page.evaluate(() => localStorage.getItem('wine-intelligence.v1'))).toBe(before);
+  expect(await readEngineRaw(page)).toBe(before);
   await page.getByLabel('Excel, CSV or JSON file').setInputFiles({ name: 'good.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify([{ ...wine, price: 60 }])) });
-  await page.evaluate(() => { Storage.prototype.setItem = () => { throw new DOMException('Full', 'QuotaExceededError'); }; });
+  await page.evaluate(() => { IDBObjectStore.prototype.put = () => { throw new DOMException('Full', 'QuotaExceededError'); }; });
   await page.getByRole('button', { name: 'Validate and import' }).click();
   await expect(page.locator('#engine-dialog')).toBeVisible();
-  await expect(page.locator('#engine-form-message')).toContainText('Full');
-  expect(await page.evaluate(() => localStorage.getItem('wine-intelligence.v1'))).toBe(before);
+  await expect(page.locator('#engine-form-message')).toContainText('Browser storage is full');
+  expect(await readEngineRaw(page)).toBe(before);
 });
 
 test('direct Excel export previews sheets and columns before importing and survives reload', async ({ page }) => {
@@ -150,14 +237,14 @@ test('direct Excel export previews sheets and columns before importing and survi
   await page.getByRole('button', { name: 'Validate and import', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Review Excel columns', exact: true })).toBeVisible();
   await expect(page.locator('.terminal-table tbody tr')).toHaveCount(2); // Preview only, no saved inventory yet.
-  expect(await page.evaluate(() => localStorage.getItem('wine-intelligence.v1'))).toBeNull();
+  expect(await readEngineRaw(page)).toBeNull();
   await expect(page.getByRole('combobox', { name: 'Worksheet', exact: true })).toHaveValue('1');
   await expect(page.getByLabel('Header row number')).toHaveValue('2');
   await expect(page.getByRole('combobox', { name: 'Map Wine Name', exact: true })).toHaveValue('raw_title');
   await page.getByRole('button', { name: 'Confirm Excel import', exact: true }).click();
   await expect(page.locator('#engine-dialog')).not.toBeVisible();
   await expect(page.locator('#engine-notice')).toContainText('2 Excel rows imported');
-  const saved = JSON.parse(await page.evaluate(() => localStorage.getItem('wine-intelligence.v1')));
+  const saved = JSON.parse(await readEngineRaw(page));
   expect(saved.listings[0].unitPrice).toBe(80); expect(saved.listings[0].packCount).toBe(3); expect(saved.listings[1].bottleMl).toBe(1500);
   await page.reload(); await expect(page.locator('.terminal-table tbody tr')).toHaveCount(2);
 });
@@ -180,7 +267,7 @@ test('Excel rows with MV, NV, zero and out-of-range vintages import with visible
   await page.locator('#engine-dialog-close').click();
   await page.reload();
   await expect(rows).toHaveCount(4); await expect(page.locator('.vintage-warning')).toHaveCount(2);
-  const saved = JSON.parse(await page.evaluate(() => localStorage.getItem('wine-intelligence.v1')));
+  const saved = JSON.parse(await readEngineRaw(page));
   expect(saved.listings.map(l => l.price)).toEqual([480,240,190,360]);
   expect(saved.wines[saved.listings[2].wineId].rawVintage).toBe('0');
 });
@@ -197,7 +284,7 @@ test('repeated Excel wine offers import without manual IDs and reimport without 
   const rows = page.locator('#engine-results .terminal-table tbody tr');
   await expect(rows).toHaveCount(5);
   await expect(rows.filter({ hasText: 'Separate offer' })).toHaveCount(3);
-  const read = () => page.evaluate(() => JSON.parse(localStorage.getItem('wine-intelligence.v1')));
+  const read = () => readEngineRaw(page).then(raw => JSON.parse(raw));
   const first = await read();
   expect(first.listings.map(l => [l.price,l.availableQuantity])).toEqual([[480,1],[240,2],[190,3],[360,4],[480,1]]);
   await rows.filter({ hasText: 'Separate offer' }).first().getByRole('button', { name: 'Explain', exact: true }).click();
