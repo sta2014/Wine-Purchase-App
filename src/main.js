@@ -4,6 +4,7 @@ import '@fontsource/dm-sans/latin-600.css';
 import '@fontsource/libre-caslon-display/latin-400.css';
 import './style.css';
 import { STORAGE_KEY, TYPES, CURRENCIES, localDate, normalizeWine, parseCollection, serializeCollection, saveCollection, mergeCollection, filterWines, escapeHTML as esc } from './model.js';
+import { mountIntelligence } from './terminal.js';
 
 const paths = {
   glass: '<path d="M7 3h10l1.5 7a6.7 6.7 0 0 1-13 0L7 3ZM12 17v5M8 22h8M6 10h12"/>',
@@ -209,3 +210,4 @@ window.addEventListener('storage', event => {
   } catch { storageBlocked = true; storageProblem = 'Your saved collection changed but could not be read. Export a recovery copy before importing a valid backup.'; $('#delete-dialog').close(); $('#wine-dialog').close(); render(); }
 });
 render();
+mountIntelligence();

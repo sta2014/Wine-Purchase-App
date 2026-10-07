@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22.12"
+    "node": ">=24.5"
   },
   "scripts": {
     "dev": "vite --host 0.0.0.0",
@@ -12,7 +12,8 @@
     "build:pages": "vite build --base=/Wine-Purchase-App/ --outDir=docs",
     "preview": "vite preview --host 0.0.0.0",
     "preview:pages": "vite preview --host 0.0.0.0 --outDir docs --base=/Wine-Purchase-App/",
-    "test": "node --test tests/model.test.js",
+    "test": "node --test tests/*.test.js",
+    "engine": "node --env-file-if-exists=.env server/index.js",
     "test:e2e": "playwright test"
   },
   "devDependencies": {
@@ -21,6 +22,7 @@
   },
   "dependencies": {
     "@fontsource/dm-sans": "5.3.0",
-    "@fontsource/libre-caslon-display": "5.3.0"
+    "@fontsource/libre-caslon-display": "5.3.0",
+    "read-excel-file": "9.3.10"
   }
 }

@@ -1,0 +1,13 @@
+services:
+  wine-engine:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5180:5180"
+    environment:
+      ENGINE_ACCESS_TOKEN: ${ENGINE_ACCESS_TOKEN:?Set a private engine access token in host settings or .env}
+      WINE_ALLOWED_ORIGINS: ${WINE_ALLOWED_ORIGINS:-https://sta2014.github.io}
+    volumes:
+      - wine-history:/data
+volumes:
+  wine-history:

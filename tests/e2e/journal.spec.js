@@ -1,6 +1,12 @@
 import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 
+test.beforeEach(async ({ page }) => {
+  await page.route('**/api/**', route => route.fulfill({ status: 404, contentType: 'application/json', body: '{}' }));
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Personal journal', exact: true }).click();
+});
+
 async function addWine(page, { name = 'Côtes du Rhône', status = 'wishlist', type = 'Red', price = '18.50', quantity = '2' } = {}) {
   await page.getByRole('button', { name: 'Add a wine', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Add a wine', exact: true });
