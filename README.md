@@ -123,4 +123,4 @@ Open **Market Intelligence** beside a wine to inspect the current median, lowest
 
 Public U.S. retailer pricing, source coverage, queue/scheduling, historical observations and access limitations are documented in [MARKET_RESEARCH.md](MARKET_RESEARCH.md). Development and browser testing are desktop-only.
 
-Inventory uploads to a connected pricing service now automatically queue background retailer research. See [PRICING_SERVICE_SETUP.md](PRICING_SERVICE_SETUP.md) for the prepared Render deployment and its hosting costs, and [VINTAGE_CHARTS_NEXT.md](VINTAGE_CHARTS_NEXT.md) for additional chart coverage needed. Updated Flickinger exports support Color / Type codes R/W/S and refresh descriptive metadata while preserving saved chart history.
+Inventory uploads to a connected pricing service now automatically queue background retailer research. See [PRICING_SERVICE_SETUP.md](PRICING_SERVICE_SETUP.md) for the free Windows desktop package, and [VINTAGE_CHARTS_NEXT.md](VINTAGE_CHARTS_NEXT.md) for additional chart coverage needed. Updated Flickinger exports support Color / Type codes R/W/S and refresh descriptive metadata while preserving saved chart history.

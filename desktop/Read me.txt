@@ -1,0 +1,16 @@
+FREE WINE PURCHASING INTELLIGENCE — WINDOWS
+
+1. Right-click the downloaded ZIP and choose Extract All.
+2. Open the extracted Wine Purchasing Intelligence folder.
+3. Double-click Start Wine.exe. The first launch downloads a free official Node.js runtime and checks its published checksum. No installation commands, subscription or cloud account are needed.
+4. The wine app opens in your browser. Upload your Flickinger Excel file. For a full inventory export, choose Complete inventory snapshot so offers missing from the new export stop appearing as available; their history remains.
+5. Click Vintage charts, then Load Wine Spectator charts. Saved assessments persist across later imports.
+6. Open Market research to see price-search progress and source errors. Current verified offers update rankings as searches finish. This is background research: thousands of wines take time, and some will have no verified comparable.
+
+Keep the starter window open while researching prices. Closing it stops background searches; your data remains saved. Next time, double-click Start Wine.exe in the SAME extracted folder.
+
+No hosting or pricing API is paid for or required. Searches run on your computer using permitted public retailer pages. Only JJ Buckley currently has a live-validated automatic adapter; other source candidates remain inactive pending access/format/stock validation. A missing price does not establish that there is no buying opportunity. Discounts compare recorded exact-vintage/bottle-format prices; taxes, shipping and sample size still matter.
+
+Your inventory, chart ratings, price history and jobs are stored in data/wine-engine.sqlite in this folder. Keep that folder when updating the app. Export engine backups from the app. The GitHub Pages website has separate browser storage; its backup can be restored here if you want your previous manual reviews or corrections.
+
+The launcher is built from desktop/launcher/main.go in the application repository. Its embedded official Node.js release archive checksum is verified before execution. Windows 10/11, 64-bit Intel/AMD, and an internet connection are required.
