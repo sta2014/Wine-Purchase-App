@@ -71,4 +71,14 @@ test('private inventory gains vintage evidence without losing wines or retailer 
     db.close();return {listings:state.listings.length,reviews:state.reviews.length,charts:state.vintages.length};
   });
   expect(counts).toEqual({listings:8648,reviews:4346,charts:466});
+  // Reimport after chart enrichment must retain the chart matches and review facts.
+  await page.getByRole('button',{name:'Import data',exact:true}).click();
+  await page.getByLabel('Excel, CSV or JSON file').setInputFiles(process.env.WINE_TEST_WORKBOOK);
+  await page.getByRole('button',{name:'Validate and import',exact:true}).click();
+  await page.getByRole('button',{name:'Confirm Excel import',exact:true}).click();
+  await expect(page.locator('#engine-dialog')).not.toBeVisible({timeout:60000});
+  await expect(page.locator('#engine-result-count')).toHaveText('6547 in your filtered universe');
+  await page.reload();
+  await page.getByLabel('Minimum vintage score',{exact:true}).fill('0');
+  await expect(page.locator('#engine-result-count')).toHaveText('6547 in your filtered universe');
 });
