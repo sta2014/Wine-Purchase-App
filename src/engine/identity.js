@@ -1,3 +1,4 @@
+import {canonicalType} from './geography.js';
 // Shared by the browser terminal, imports, and the server. No external requests.
 export function normalized(value = '') {
   return String(value).normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
@@ -102,7 +103,7 @@ export function identifyWine(row, aliases = PRODUCERS) {
   const subregion = bounded(row.subregion, 'Subregion');
   const style = bounded(row.style, 'Wine style');
   const country = bounded(row.country, 'Country');
-  const type = bounded(row.type || 'Unknown', 'Wine type');
+  const type = canonicalType(bounded(row.type || 'Unknown', 'Wine type'));
   // Distinct unresolved values must not collapse into one canonical wine.
   const vintageKey = vintage ?? (rawVintage ? vintageKind !== 'unknown' ? vintageKind : `unresolved:${rawVintage}` : null);
   const beverageKey = [canonicalProducer, normalized(cuvee), normalized(vineyard), normalized(appellation), vintageKey, normalized(classification), normalized(designation)];

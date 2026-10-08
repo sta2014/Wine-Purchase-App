@@ -31,10 +31,12 @@ export class MarketResearchService {
   const rows=rankInventory(state,{available:true},now),wines=new Map();
   for(const a of rows)if(a.wine.vintage!=null && (!wineId || a.wine.id===wineId)) {const key=a.wine.beverageId+':'+a.wine.bottleMl+':'+a.wine.packaging;const score=a.score+(a.quality || 0)/5+(a.vintage || 0)/10+(a.marketEvidence.length<2?20:0)+(a.marketIntelligence.lastVerifiedAt?0:15);if(!wines.has(key))wines.set(key,{wine:a.wine,priority:score});}
   if(wineId && !Object.values(state.wines).some(w=>w.id===wineId && state.listings.some(l=>l.wineId===w.id&&l.isAvailable)))throw new Error('Select an available inventory wine.');
-  let count=0;
-  for(const {wine,priority} of [...wines.values()].sort((a,b)=>b.priority-a.priority).slice(0,maxWines || r.schedule.maxWines))for(const source of sources){
+  let count=0;const selectedWines=new Set(),wineLimit=maxWines || r.schedule.maxWines;
+  for(const {wine,priority} of [...wines.values()].sort((a,b)=>b.priority-a.priority))for(const source of sources){
    const key=`${wine.beverageId}:${wine.bottleMl}:${wine.packaging}:${source.id}`,cached=r.cache[key];
    if(r.jobs.some(j=>j.key===key && ['queued','running'].includes(j.status)) || (!force && cached && Date.parse(cached.nextDue)>+now))continue;
+   if(!selectedWines.has(wine.id) && selectedWines.size>=wineLimit)continue;
+   selectedWines.add(wine.id);
    if(r.jobs.length>=20000)throw new Error('Research queue retention limit reached; export/archive completed jobs first.');
    r.jobs.push({id:crypto.randomUUID(),key,wineId:wine.id,sourceId:source.id,status:'queued',priority,createdAt:now.toISOString(),attempts:0,nextDue:now.toISOString(),error:'',offers:0,pages:0});count++;
   }

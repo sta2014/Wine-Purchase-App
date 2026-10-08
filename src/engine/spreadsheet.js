@@ -5,7 +5,7 @@ const aliases = {
   wine: 'raw_title', winename: 'raw_title', winedescription: 'raw_title', description: 'raw_title', productname: 'raw_title', name: 'raw_title', title: 'raw_title', rawtitle: 'raw_title',
   subregion:'subregion', style:'style', originalrating:'original_rating', ratingsystem:'rating_system', professional:'professional', contexttags:'context_tags', regionname: 'region', priceusd: 'price', scores: 'ratings', producer: 'producer', winery: 'producer', estate: 'producer', cuvee: 'cuvee', vineyard: 'vineyard', appellation: 'appellation', region: 'region', country: 'country',
   vintage: 'vintage', year: 'vintage', vintageyear: 'vintage', bottleml: 'bottle_ml', bottlesizeml: 'bottle_ml', sizeml: 'bottle_ml', size: 'format', bottlesize: 'format', format: 'format', packageformat: 'format', packagesize: 'format',
-  packcount: 'pack_count', packsize: 'pack_count', bottlecount: 'pack_count', packaging: 'packaging', type: 'type', winetype: 'type', color: 'type', colour: 'type',
+  packcount: 'pack_count', packsize: 'pack_count', bottlecount: 'pack_count', packaging: 'packaging', type: 'type', winetype: 'type', color: 'type', colour: 'type', colortype: 'type', colourtype: 'type',
   price: 'price', askingprice: 'price', retailprice: 'price', unitprice: 'price', bottleprice: 'unit_price', priceperbottle: 'unit_price', currency: 'currency',
   quantity: 'available_quantity', qty: 'available_quantity', availablequantity: 'available_quantity', available: 'available_quantity', stock: 'available_quantity', instock: 'available_quantity',
   sku: 'external_id', itemnumber: 'external_id', itemno: 'external_id', itemid: 'external_id', productid: 'external_id', externalid: 'external_id',

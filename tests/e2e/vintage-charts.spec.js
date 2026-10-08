@@ -58,13 +58,13 @@ test('private inventory gains vintage evidence without losing wines or retailer 
   const data=JSON.parse(fs.readFileSync(process.env.WINE_TEST_VINTAGE_PACK));
   await importRows(page,data.rows,true);
   await page.getByLabel('Minimum vintage score',{exact:true}).fill('0');
-  await expect(page.locator('#engine-result-count')).toHaveText('6547 in your filtered universe');
+  await expect(page.locator('#engine-result-count')).toHaveText('6632 in your filtered universe');
   await page.getByRole('button',{name:'Reset filters',exact:true}).click();
   await expect(page.locator('#engine-result-count')).toHaveText('8648 in your filtered universe');
   await page.reload();
   await expect(page.locator('#engine-result-count')).toHaveText('8648 in your filtered universe',{timeout:60000});
   await page.getByLabel('Minimum vintage score',{exact:true}).fill('0');
-  await expect(page.locator('#engine-result-count')).toHaveText('6547 in your filtered universe');
+  await expect(page.locator('#engine-result-count')).toHaveText('6632 in your filtered universe');
   const counts=await page.evaluate(async()=>{
     const db=await new Promise(resolve=>{const r=indexedDB.open('wine-intelligence',1);r.onsuccess=()=>resolve(r.result);});
     const state=await new Promise(resolve=>{const r=db.transaction('engine').objectStore('engine').get('wine-intelligence.v1');r.onsuccess=()=>resolve(r.result);});
@@ -77,8 +77,8 @@ test('private inventory gains vintage evidence without losing wines or retailer 
   await page.getByRole('button',{name:'Validate and import',exact:true}).click();
   await page.getByRole('button',{name:'Confirm Excel import',exact:true}).click();
   await expect(page.locator('#engine-dialog')).not.toBeVisible({timeout:60000});
-  await expect(page.locator('#engine-result-count')).toHaveText('6547 in your filtered universe');
+  await expect(page.locator('#engine-result-count')).toHaveText('6632 in your filtered universe');
   await page.reload();
   await page.getByLabel('Minimum vintage score',{exact:true}).fill('0');
-  await expect(page.locator('#engine-result-count')).toHaveText('6547 in your filtered universe');
+  await expect(page.locator('#engine-result-count')).toHaveText('6632 in your filtered universe');
 });

@@ -14,9 +14,9 @@ const rows = [
   ...['Meursault','Puligny-Montrachet','Chassagne-Montrachet','Beaune','Pommard','Volnay','Aloxe-Corton','Savigny-lès-Beaune','Saint-Aubin'].map(n=>[geoKey(n).replaceAll(' ','-'),n,'cote-beaune','appellation',[], ['Meursault','Puligny-Montrachet'].includes(n)?'White':['Pommard','Volnay'].includes(n)?'Red':null]),
   ['maconnais','Mâconnais','burgundy','subregion',[]], ['pouilly-fuisse','Pouilly-Fuissé','maconnais','appellation',[],'White'],
   ...['Montrachet','Chevalier-Montrachet','Bâtard-Montrachet','Bienvenues-Bâtard-Montrachet','Corton-Charlemagne'].map(n=>[geoKey(n).replaceAll(' ','-'),n,'cote-beaune','appellation',[],'White']),
-  ...['Chambertin','Griotte-Chambertin','Clos de Vougeot','Échezeaux','Grands-Échezeaux','Richebourg','Romanée-Conti','Romanée-Saint-Vivant','Clos de la Roche','Clos Saint-Denis','Musigny','Bonnes-Mares'].map(n=>[geoKey(n).replaceAll(' ','-'),n,'nuits','appellation',[],'Red']),
+  ...['Chambertin','Griotte-Chambertin','Clos de Vougeot','Échezeaux','Grands-Échezeaux','Richebourg','Romanée-Conti','Romanée-Saint-Vivant','Clos de la Roche','Clos Saint-Denis','Clos de Tart','Musigny','Bonnes-Mares'].map(n=>[geoKey(n).replaceAll(' ','-'),n,'nuits','appellation',n==='Clos de Tart'?['Clos du Tart']:[],'Red']),
   ['rhone','Rhône','france','region',['Rhone Valley']], ['north-rhone','Northern Rhône','rhone','subregion',['North Rhone']], ['south-rhone','Southern Rhône','rhone','subregion',['South Rhone']],
-  ['cote-rotie','Côte-Rôtie','north-rhone','appellation',[],'Red'], ['hermitage','Hermitage','north-rhone','appellation',[]], ['crozes','Crozes-Hermitage','north-rhone','appellation',[]], ['saint-joseph','Saint-Joseph','north-rhone','appellation',[]], ['cornas','Cornas','north-rhone','appellation',[],'Red'], ['condrieu','Condrieu','north-rhone','appellation',[],'White'],
+  ['cote-rotie','Côte-Rôtie','north-rhone','appellation',[],'Red'], ['hermitage','Hermitage','north-rhone','appellation',['Ermitage']], ['crozes','Crozes-Hermitage','north-rhone','appellation',[]], ['saint-joseph','Saint-Joseph','north-rhone','appellation',[]], ['cornas','Cornas','north-rhone','appellation',[],'Red'], ['condrieu','Condrieu','north-rhone','appellation',[],'White'],
   ['cdp','Châteauneuf-du-Pape','south-rhone','appellation',['CdP']], ['gigondas','Gigondas','south-rhone','appellation',[],'Red'], ['vacqueyras','Vacqueyras','south-rhone','appellation',[]], ['cotes-rhone','Côtes du Rhône','rhone','appellation',[]],
   ['champagne','Champagne','france','region',[],'Sparkling'], ['loire','Loire','france','region',['Loire Valley']], ['alsace','Alsace','france','region',[]], ['jura','Jura','france','region',[]],
   ['piedmont','Piedmont','italy','region',['Piemonte']], ['langhe','Langhe','piedmont','subregion',[]], ['barolo','Barolo','langhe','appellation',[],'Red'], ['barbaresco','Barbaresco','langhe','appellation',[],'Red'],
@@ -36,7 +36,7 @@ const titleAliases=rows.map(([id,name,,,a])=>({id,phrases:[name,...a].filter(n=>
 const contains = (text, phrase) => (` ${geoKey(text)} `).includes(` ${geoKey(phrase)} `);
 export function canonicalType(value) {
   const key=geoKey(value);
-  return ({red:'Red',rouge:'Red',white:'White',blanc:'White',rose:'Rosé',rosato:'Rosé',sparkling:'Sparkling',champagne:'Sparkling',sweet:'Sweet',dessert:'Sweet',fortified:'Fortified',unknown:'Unknown','dry white':'White','red burgundy':'Red','white burgundy':'White','red bordeaux':'Red','sweet bordeaux':'Sweet'})[key] || (key ? String(value) : 'Unknown');
+  return ({r:'Red',w:'White',s:'Sparkling',red:'Red',rouge:'Red',white:'White',blanc:'White',rose:'Rosé',rosato:'Rosé',sparkling:'Sparkling',champagne:'Sparkling',sweet:'Sweet',dessert:'Sweet',fortified:'Fortified',unknown:'Unknown','dry white':'White','red burgundy':'Red','white burgundy':'White','red bordeaux':'Red','sweet bordeaux':'Sweet'})[key] || (key ? String(value) : 'Unknown');
 }
 export function canonicalStyle(value) {
   const key=geoKey(value);

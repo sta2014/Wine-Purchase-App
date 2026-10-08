@@ -14,10 +14,9 @@ import { sourceStatus } from '../src/engine/sources.js';
 import { credentialAvailable } from './adapters.js';
 import { WebResearchService } from './research.js';
 
-export function createEngineServer({ database = new EngineDatabase(process.env.WINE_DB_FILE || '.local/wine-engine.sqlite'), token = process.env.ENGINE_ACCESS_TOKEN || '', origins = (process.env.WINE_ALLOWED_ORIGINS || '').split(',').filter(Boolean), refresh = new RefreshService(database), research = new WebResearchService(), marketLookup = new MarketLookupService(database,refresh), staticDir = 'dist' } = {}) {
+export function createEngineServer({ database = new EngineDatabase(process.env.WINE_DB_FILE || '.local/wine-engine.sqlite'), token = process.env.ENGINE_ACCESS_TOKEN || '', origins = (process.env.WINE_ALLOWED_ORIGINS || '').split(',').filter(Boolean), refresh = new RefreshService(database), research = new WebResearchService(), marketLookup = new MarketLookupService(database,refresh), marketResearch = new MarketResearchService(database), staticDir = 'dist' } = {}) {
   const critics = new CriticLookupService(database, refresh);
   const market = marketLookup;
-  const marketResearch=new MarketResearchService(database);
   const vintages = new VintageLookupService(database, refresh);
   const server = createServer(async (req, res) => {
     const origin = req.headers.origin;
@@ -77,7 +76,12 @@ export function createEngineServer({ database = new EngineDatabase(process.env.W
         if (body.expectedRevision !== current.revision) return send(409, { error: 'Engine changed in another session. Reload and try again.' });
         const state = applyAction(current, body.action);
         database.save(state);
-        if (body.action?.type === 'import' && state.sources.find(s=>s.id===body.action.sourceId)?.category==='inventory') await critics.lookupMany(state.listings.filter(l=>l.isAvailable && l.sourceId===body.action.sourceId).map(l=>l.wineId));
+        if (body.action?.type === 'import' && state.sources.find(s=>s.id===body.action.sourceId)?.category==='inventory') {
+          await critics.lookupMany(state.listings.filter(l=>l.isAvailable && l.sourceId===body.action.sourceId).map(l=>l.wineId));
+          let outcome;try {const summary=marketResearch.summary(),count=Math.min(summary.activeSources,5);const capacity=Math.floor((20000-summary.jobs.length)/Math.max(1,count));outcome=capacity>0?marketResearch.enqueue({maxWines:Math.min(10000,capacity),maxSources:5}):{queued:0,message:'Search queue retention limit reached. Existing inventory was saved.'};}
+          catch(error){outcome={queued:0,message:error.message};}
+          const latest=database.load(),run=latest.runs.filter(r=>r.category==='inventory'&&r.sourceId===body.action.sourceId).at(-1);if(run)run.marketResearch={queued:outcome.queued,message:outcome.message || 'Background price research queued; results appear as verified offers arrive.'};latest.revision++;database.save(latest);
+        }
         return send(200, database.load());
       }
       return send(404, { error: 'API route not found.' });

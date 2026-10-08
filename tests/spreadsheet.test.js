@@ -63,3 +63,8 @@ test('Excel quarantine reports physical worksheet rows after blank lines',()=>{
   const rows=mapSpreadsheet(data,1,['raw_title','price']);assert.deepEqual(rows.map(r=>r.import_row),[3,5]);
   const state=ingestDataset(initialState(),'flickinger',{rows,skipInvalidPrices:true});assert.equal(state.listings.length,1);assert.equal(state.runs.at(-1).rejectedPriceRows[0].rowNumber,5);
 });
+
+test('updated Flickinger Color / Type header and shorthand colors preserve chart and market identity',()=>{
+ const headers=['Region Name','Sub Region','Vintage','Size','Wine Name','Price (USD)','Scores','Color / Type'];
+ assert.deepEqual(suggestColumns(headers),['region','subregion','vintage','format','raw_title','price','ratings','type']);
+});
