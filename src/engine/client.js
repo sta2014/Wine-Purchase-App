@@ -89,8 +89,13 @@ export class EngineClient {
     if(!response.ok) throw new Error(result.error || 'Vintage refresh failed.');
     await this.reload(); return result;
   }
+  async marketResearch(path='',body={}) {
+    if(this.mode!=='server')throw new Error('Automatic research needs a running connected engine. No paid API is required.');
+    const response=await fetch(this.base+'/market-research'+(path?'/'+path:''),{method:path?'POST':'GET',headers:{...(path?{'Content-Type':'application/json'}:{}),...(this.token?{Authorization:`Bearer ${this.token}`}:{})},...(path?{body:JSON.stringify(body)}:{})});
+    const result=await response.json();if(!response.ok)throw new Error(result.error || 'Market research failed.');return result;
+  }
   async market(wineId,force=false) {
-    if(this.mode!=='server') throw new Error('Automatic market refresh requires a connected engine and approved merchant or licensed feeds. Verified manual offers work on this device.');
+    if(this.mode!=='server') throw new Error('Automatic market research requires a running connected engine and permitted public retailer sources. Verified manual offers work on this device.');
     const response=await fetch(this.base+'/market',{method:'POST',headers:{'Content-Type':'application/json',...(this.token?{Authorization:`Bearer ${this.token}`}:{})},body:JSON.stringify({wineId,force})});
     const result=await response.json();if(!response.ok) throw new Error(result.error || 'Market refresh failed.');await this.reload();return result;
   }

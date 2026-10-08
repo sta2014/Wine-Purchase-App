@@ -1,3 +1,4 @@
+import {MarketResearchService} from './market-jobs.js';
 import { MarketLookupService } from './market.js';
 import { CriticLookupService } from './critics.js';
 import { VintageLookupService } from './vintages.js';
@@ -16,6 +17,7 @@ import { WebResearchService } from './research.js';
 export function createEngineServer({ database = new EngineDatabase(process.env.WINE_DB_FILE || '.local/wine-engine.sqlite'), token = process.env.ENGINE_ACCESS_TOKEN || '', origins = (process.env.WINE_ALLOWED_ORIGINS || '').split(',').filter(Boolean), refresh = new RefreshService(database), research = new WebResearchService(), marketLookup = new MarketLookupService(database,refresh), staticDir = 'dist' } = {}) {
   const critics = new CriticLookupService(database, refresh);
   const market = marketLookup;
+  const marketResearch=new MarketResearchService(database);
   const vintages = new VintageLookupService(database, refresh);
   const server = createServer(async (req, res) => {
     const origin = req.headers.origin;
@@ -46,6 +48,7 @@ export function createEngineServer({ database = new EngineDatabase(process.env.W
         if (a.length !== b.length || !timingSafeEqual(a, b)) return send(401, { error: 'Engine authentication required.' });
       }
       if (req.method === 'GET' && url.pathname === '/api/health') return send(200, { ok: true, scheduler: true, persistent: true });
+      if(req.method==='GET' && url.pathname==='/api/market-research') return send(200,marketResearch.summary());
       if (req.method === 'GET' && url.pathname === '/api/engine') {
         const state = database.load();
         for (const source of state.sources) source.status = sourceStatus(source, credentialAvailable(source));
@@ -57,7 +60,10 @@ export function createEngineServer({ database = new EngineDatabase(process.env.W
       for await (const chunk of req) { bytes += chunk.length; if (bytes > 10 * 1024 * 1024) return send(413, { error: 'Request exceeds 10 MB.' }); chunks.push(chunk); }
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
       if (url.pathname === '/api/critics') return send(200, await critics.lookup(body.wineId, body.force === true));
-      if (url.pathname === '/api/market') return send(200, await market.lookup(body.wineId, body.force === true));
+      if(url.pathname==='/api/market-research/audit')return send(200,await marketResearch.audit(body.sourceId));
+      if(url.pathname==='/api/market-research/configure')return send(200,marketResearch.configure(body));
+      if(url.pathname==='/api/market-research/cancel')return send(200,marketResearch.cancel(body.jobId));
+      if(url.pathname==='/api/market-research/queue' || url.pathname==='/api/market') {const result=marketResearch.enqueue(body);marketResearch.tick().catch(()=>{});return send(200,result);}
       if (url.pathname === '/api/vintages') return send(200, await vintages.lookup(body.wineId, body.force === true));
       if (url.pathname === '/api/research') {
         const state = database.load(), wine = state.wines[body.wineId];
@@ -77,13 +83,14 @@ export function createEngineServer({ database = new EngineDatabase(process.env.W
       return send(404, { error: 'API route not found.' });
     } catch (error) { return send(400, { error: error.message }); }
   });
-  return { server, database, refresh };
+  server.on('close',()=>marketResearch.stop());
+  return { server, database, refresh, marketResearch };
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const host = process.env.WINE_API_HOST || '127.0.0.1';
   if (!['127.0.0.1', 'localhost', '::1'].includes(host) && !process.env.ENGINE_ACCESS_TOKEN) throw new Error('ENGINE_ACCESS_TOKEN is required before binding the engine to a public interface.');
   const app = createEngineServer();
-  app.server.listen(Number(process.env.WINE_API_PORT || 5180), host, () => { console.log('Wine intelligence service started; SQLite persistence and scheduled refresh enabled.'); app.refresh.start(); app.refresh.run().catch(error => console.error('Initial refresh failed:', error.message)); });
-  const shutdown = () => { app.refresh.stop(); app.server.close(() => { app.database.close(); process.exit(0); }); };
+  app.server.listen(Number(process.env.WINE_API_PORT || 5180), host, () => { console.log('Wine intelligence service started; SQLite persistence and scheduled refresh enabled.'); app.refresh.start(); app.marketResearch.start(); app.refresh.run().catch(error => console.error('Initial refresh failed:', error.message)); });
+  const shutdown = () => { app.refresh.stop(); app.marketResearch.stop(); app.server.close(() => { app.database.close(); process.exit(0); }); };
   process.on('SIGTERM', shutdown); process.on('SIGINT', shutdown);
 }

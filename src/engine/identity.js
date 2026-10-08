@@ -108,7 +108,7 @@ export function identifyWine(row, aliases = PRODUCERS) {
   const beverageKey = [canonicalProducer, normalized(cuvee), normalized(vineyard), normalized(appellation), vintageKey, normalized(classification), normalized(designation)];
   const beverageId = identifier(beverageKey);
   const id = identifier([...beverageKey, bottleMl, packCount, packaging]);
-  return { id, beverageId, rawTitle, producer, canonicalProducer, cuvee, vineyard, appellation, region, subregion, style, country, vintage, vintageKind, rawVintage, bottleMl, packCount, packaging, type, classification, designation, formatKnown, warnings,
+  return { id, beverageId, rawTitle, producer, canonicalProducer, cuvee, cuveeExplicit: row.cuveeExplicit ?? Boolean(row.cuvee), vineyard, appellation, region, subregion, style, country, vintage, vintageKind, rawVintage, bottleMl, packCount, packaging, type, classification, designation, formatKnown, warnings,
     identityConfidence: warnings.length ? .7 : producer && vintage ? 1 : .8 };
 }
 function similarity(a, b) {

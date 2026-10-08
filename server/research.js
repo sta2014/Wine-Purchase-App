@@ -10,7 +10,7 @@ export class WebResearchService {
   }
   async search(wine) {
     const query = wineSearchQuery(wine), now = this.clock();
-    const key = this.env.BRAVE_SEARCH_API_KEY;
+    const key = this.env.WINE_ENABLE_PAID_SEARCH==='true'?this.env.BRAVE_SEARCH_API_KEY:null;
     if (!key) return { status: 'configuration-required', query, results: [], message: 'Automatic web research needs a server-side search API key. Browser search links work without one.' };
     const cached = this.cache.get(query);
     if (cached && now - cached.at < 6 * 3600000) return { ...cached.result, cached: true };

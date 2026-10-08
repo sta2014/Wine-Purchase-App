@@ -168,7 +168,7 @@ test('a newer unavailable quote suppresses the older available quote', () => {
 });
 test('missing critic uses disclosed neutral contribution without imputing a critic score; minimum filters exclude unknowns', () => {
   const state = inventory(), a = rankInventory(state, {}, now)[0];
-  assert.equal(a.score, 22.5); assert.equal(a.breakdown.find(b=>b.key==='quality').neutral, true); assert.equal(a.coverage, 0); assert.equal(a.quality, null); assert.equal(a.drinkNow, null);
+  assert.equal(a.score, 40); assert.equal(a.breakdown.find(b=>b.key==='quality').neutral, true); assert.equal(a.coverage, 0); assert.equal(a.quality, null); assert.equal(a.drinkNow, null);
   assert.equal(rankInventory(state, { minCritic: 90 }, now).length, 0);
   assert.equal(rankInventory(state, { minDiscount: 0 }, now).length, 0);
 });

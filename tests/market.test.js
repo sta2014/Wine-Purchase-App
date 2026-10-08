@@ -55,12 +55,12 @@ test('new sold-out quote from another provider suppresses older in-stock quote f
   s=ingestDataset(s,'other-feed',{rows:[offer(400,'A',{availability_status:'OUT_OF_STOCK',is_available:false,observed_at:'2026-10-07T13:00:00Z',verified_at:'2026-10-07T13:00:00Z'})]},'2026-10-07T13:00:00Z');
   const a=rankInventory(s,{},new Date('2026-10-07T13:00:00Z'))[0];assert.equal(a.referencePrice,null);assert.ok(a.exclusions.some(r=>r.reason.includes('Superseded')));
 });
-test('high 950 outlier stays visible and is excluded from reference and average',()=>{
+test('high rare-wine outlier stays flagged and retained in the benchmark',()=>{
   const m=analysis(market([390,400,405,410,415,420,950].map((p,i)=>offer(p,'Merchant '+i)))).marketIntelligence;
-  assert.equal(m.referencePrice,407.5);assert.equal(m.averagePrice,406.6666666666667);assert.equal(m.offerCount,6);assert.equal(m.candidates.find(r=>r.price===950).outlier,true);
+  assert.equal(m.referencePrice,410);assert.equal(m.averagePrice,3390/7);assert.equal(m.offerCount,7);assert.equal(m.candidates.find(r=>r.price===950).outlier,true);
 });
-test('extreme suspicious cheap offer cannot become lowest credible comp',()=>{
-  const m=analysis(market([20,390,400,405,410,415,420].map((p,i)=>offer(p,'Merchant '+i)))).marketIntelligence;assert.equal(m.lowestPrice,390);assert.equal(m.candidates.find(r=>r.price===20).outlier,true);
+test('extreme cheap observation is flagged and lowers confidence without being silently removed',()=>{
+  const m=analysis(market([20,390,400,405,410,415,420].map((p,i)=>offer(p,'Merchant '+i)))).marketIntelligence;assert.equal(m.lowestPrice,20);assert.equal(m.pricingConfidence,'Moderate');assert.equal(m.candidates.find(r=>r.price===20).outlier,true);
 });
 test('one comp stays low confidence; missing comps never imply zero market value',()=>{const m=analysis(market([offer()])).marketIntelligence;assert.equal(m.confidenceLabel,'Low');assert.equal(m.availabilityLevel,'Thin market');assert.ok(m.component<=30);const empty=analysis(inventory()).marketIntelligence;assert.equal(empty.referencePrice,null);assert.equal(empty.component,null);assert.equal(empty.status,'No verified current market offers found.');});
 test('FX preserves originals and requires a traceable fresh rate',()=>{
@@ -120,8 +120,8 @@ test('forced market recheck bypasses cached transport but enforces a one-minute 
   await refresh.run(true,'market');assert.deepEqual(calls,['']);await refresh.run(true,'market');assert.equal(calls.length,1);clock=new Date(+now+61000);await refresh.run(true,'market');assert.deepEqual(calls,['','']);assert.equal(db.load().market[0].verifiedAt,clock.toISOString());db.close();
 });
 test('market HTTP API requires inventory and authentication, returns transparent verified statistics',async()=>{
-  const db=new EngineDatabase(':memory:');db.save(market([offer()]));const refresh=new RefreshService(db,{clock:()=>now});const app=createEngineServer({database:db,token:'test-only',refresh,marketLookup:new MarketLookupService(db,refresh,{clock:()=>now})});await new Promise(r=>app.server.listen(0,'127.0.0.1',r));const endpoint=`http://127.0.0.1:${app.server.address().port}/api/market`;
-  try {assert.equal((await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status,401);const res=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer test-only'},body:JSON.stringify({wineId:db.load().listings[0].wineId})});assert.equal(res.status,200);const result=await res.json();assert.equal(result.lookupStatus,'verified_offers');assert.ok(result.providers);}
+  const db=new EngineDatabase(':memory:');db.save(market([offer()]));const saved=db.load();for(const source of saved.marketResearch.sources)source.enabled=false;db.save(saved);const refresh=new RefreshService(db,{clock:()=>now});const app=createEngineServer({database:db,token:'test-only',refresh,marketLookup:new MarketLookupService(db,refresh,{clock:()=>now})});await new Promise(r=>app.server.listen(0,'127.0.0.1',r));const endpoint=`http://127.0.0.1:${app.server.address().port}/api/market`;
+  try {assert.equal((await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status,401);const res=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer test-only'},body:JSON.stringify({wineId:db.load().listings[0].wineId})});assert.equal(res.status,200);const result=await res.json();assert.equal(result.activeSources,0);assert.equal(result.queued,0);assert.ok(result.message.includes('No verified'));}
   finally {await new Promise(r=>app.server.close(r));db.close();}
 });
 test('structured merchant parser uses explicit Product Offer; sold-out and AggregateOffer cannot supply live comps',()=>{

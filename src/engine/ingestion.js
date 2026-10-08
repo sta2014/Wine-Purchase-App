@@ -1,3 +1,4 @@
+import { ensureMarketResearch } from './retailers.js';
 import { normalizeMarketOffer, upsertMarket, marketOfferKey } from './market.js';
 import { normalizeVintageAssessment, vintageRecordKey, upsertVintage } from './vintages.js';
 import { publicationName, criticInfo, isCommunity, parseCriticScore, retailerScores, upsertReview, reviewKey } from './critics.js';
@@ -184,11 +185,11 @@ export function ingestDataset(state, sourceId, dataset, now = new Date().toISOSt
   saved.lastChecked = now; saved.lastSuccess = now; saved.error = ''; saved.failures = 0;
   saved.nextDue = new Date(Date.parse(now) + saved.refreshHours * 3600000).toISOString();
   next.revision++;
-  captureScores(next, now, runId);
+  captureScores(next, now, runId, dataset.scoreWineIds);
   return next;
 }
-export function captureScores(state, at = new Date().toISOString(), runId = 'preferences') {
-  for (const row of rankInventory(state, { available: false }, new Date(at))) state.scoreHistory.push({ listingId: row.listing.id, at, runId, score: row.score, coverage: row.coverage, discount: row.discount, preferences: structuredClone(state.preferences), criticComposite: row.quality, criticComponent: row.criticComponent, criticContribution: row.breakdown.find(b => b.key === 'quality').contribution, criticEvidence: row.professional.map(r => r.id), criticConfidence: row.criticComposite.confidence, vintageComposite:row.vintage,vintageComponent:row.vintageComponent,vintageContribution:row.breakdown.find(b=>b.key==='vintage').contribution,vintageConfidence:row.vintageIntelligence.confidence,vintageGeography:row.vintageIntelligence.regionUsed,vintageEvidence:row.assessments.map(r=>({id:r.id,original:r.rawRating,normalized:r.normalizedScore,publication:r.publication,reference:r.sourceReference || r.sourceURL})),marketReference:row.referencePrice,marketLow:row.marketIntelligence.lowestPrice,marketConfidence:row.marketIntelligence.confidence,marketContribution:row.breakdown.find(b=>b.key==='value').contribution,marketEvidence:row.marketEvidence.map(r=>({id:r.id,price:r.comparisonPrice,currency:r.comparisonCurrency,verifiedAt:r.verifiedAt,url:r.offerURL || r.sourceURL})),algorithmVersion: 4 });
+export function captureScores(state, at = new Date().toISOString(), runId = 'preferences', wineIds=null) {
+  for (const row of rankInventory(wineIds?{...state,listings:state.listings.filter(l=>wineIds.includes(l.wineId))}:state, { available: false }, new Date(at))) state.scoreHistory.push({ listingId: row.listing.id, at, runId, score: row.score, coverage: row.coverage, discount: row.discount, preferences: structuredClone(state.preferences), criticComposite: row.quality, criticComponent: row.criticComponent, criticContribution: row.breakdown.find(b => b.key === 'quality').contribution, criticEvidence: row.professional.map(r => r.id), criticConfidence: row.criticComposite.confidence, vintageComposite:row.vintage,vintageComponent:row.vintageComponent,vintageContribution:row.breakdown.find(b=>b.key==='vintage').contribution,vintageConfidence:row.vintageIntelligence.confidence,vintageGeography:row.vintageIntelligence.regionUsed,vintageEvidence:row.assessments.map(r=>({id:r.id,original:r.rawRating,normalized:r.normalizedScore,publication:r.publication,reference:r.sourceReference || r.sourceURL})),marketReference:row.referencePrice,marketLow:row.marketIntelligence.lowestPrice,marketConfidence:row.marketIntelligence.confidence,marketContribution:row.breakdown.find(b=>b.key==='value').contribution,marketEvidence:row.marketEvidence.map(r=>({id:r.id,price:r.comparisonPrice,currency:r.comparisonCurrency,verifiedAt:r.verifiedAt,url:r.offerURL || r.sourceURL})),algorithmVersion: 4 });
 }
 export function validateBackup(raw) {
   const state = structuredClone(typeof raw === 'string' ? JSON.parse(raw) : raw);
@@ -222,6 +223,12 @@ export function validateBackup(raw) {
     if (r.verified && (!['manually_verified','provider_verified'].includes(r.verification) || (!r.sourceURL && !r.sourceReference))) throw new Error('Verified review requires explicit verification and provenance.');
     if (r.scoreHigh != null && (!Number.isFinite(r.scoreHigh) || r.scoreHigh < r.score || r.scoreHigh > r.scale)) throw new Error('Invalid review range.');
     if (r.verified != null && typeof r.verified !== 'boolean') throw new Error('Invalid review verification.');
+  }
+  if(state.marketResearch) {
+    const r=state.marketResearch;
+    if(!Array.isArray(r.sources) || r.sources.length>100 || !Array.isArray(r.jobs) || r.jobs.length>20000 || !Array.isArray(r.failures) || r.failures.length>100000 || !r.cache || typeof r.cache!=='object') throw new Error('Invalid market research backup.');
+    for(const s of r.sources) {const u=new URL(s.homepage);if(u.protocol!=='https:' || u.username || u.password || typeof s.enabled!=='boolean')throw new Error('Invalid retailer source backup.');}
+    if(new Set(r.jobs.map(j=>j.id)).size!==r.jobs.length || r.jobs.some(j=>!r.sources.some(s=>s.id===j.sourceId) || !state.wines[j.wineId] || !['queued','running','completed','error','cancelled'].includes(j.status)))throw new Error('Invalid research job backup.');
   }
   for(const name of ['geographyCorrections','vintageCorrections','vintageDecisions']) {
     if(state[name] && (typeof state[name]!=='object' || Array.isArray(state[name]) || Object.keys(state[name]).length>100000)) throw new Error(`Invalid ${name}.`);

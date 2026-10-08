@@ -25,7 +25,7 @@ test('missing search credential never makes a network request or fabricates resu
 });
 test('provider research deduplicates concurrent searches, caches with original time, and returns only unverified safe leads', async () => {
   let clock = Date.parse('2026-10-07T02:00:00Z'), calls = 0;
-  const service = new WebResearchService({ env: { BRAVE_SEARCH_API_KEY: 'test-only-key' }, clock: () => clock, request: async (url, headers) => {
+  const service = new WebResearchService({ env: { WINE_ENABLE_PAID_SEARCH:'true', BRAVE_SEARCH_API_KEY: 'test-only-key' }, clock: () => clock, request: async (url, headers) => {
     calls++; assert.equal(new URL(url).hostname, 'api.search.brave.com'); assert.equal(headers['X-Subscription-Token'], 'test-only-key');
     assert.equal(new URL(url).searchParams.get('q'), wineSearchQuery(wine));
     return { status: 200, text: JSON.stringify({ web: { results: [
@@ -41,7 +41,7 @@ test('provider research deduplicates concurrent searches, caches with original t
   clock += 6 * 3600000; await service.search(wine); assert.equal(calls, 2);
 });
 test('provider errors hide credentials, quota and global request limits are enforced', async () => {
-  const env = { BRAVE_SEARCH_API_KEY: 'test-only-key' };
+  const env = { WINE_ENABLE_PAID_SEARCH:'true', BRAVE_SEARCH_API_KEY: 'test-only-key' };
   await assert.rejects(() => new WebResearchService({ env, request: async () => { throw new Error(env.BRAVE_SEARCH_API_KEY); } }).search(wine), error => !error.message.includes(env.BRAVE_SEARCH_API_KEY));
   for (const status of [401, 403, 429, 500]) await assert.rejects(() => new WebResearchService({ env, request: async () => ({ status }) }).search(wine));
   await assert.rejects(() => new WebResearchService({ env, request: async () => ({ status: 200, text: '{}' }) }).search(wine), /valid web/);

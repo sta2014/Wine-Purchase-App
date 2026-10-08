@@ -30,6 +30,7 @@ export function applyAction(state, action, now = new Date().toISOString()) {
     const restored = validateBackup(action.state);
     // Imported backups cannot turn on unattended network retrieval.
     for (const source of restored.sources) source.accessApproved = false;
+    if(restored.marketResearch){for(const s of restored.marketResearch.sources){s.enabled=false;s.termsReviewed=false;}restored.marketResearch.schedule.enabled=false;for(const j of restored.marketResearch.jobs)if(['queued','running'].includes(j.status))j.status='cancelled';}
     restored.revision = state.revision + 1;
     return restored;
   }

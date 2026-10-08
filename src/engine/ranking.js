@@ -65,7 +65,7 @@ export function analyzeListing(state, listing, now = new Date(), reviewIndex = n
     confidence: marketIntelligence.confidence==null?null:marketIntelligence.confidence*100 };
   const weights = state.preferences.weights;
   const totalWeight = Object.values(weights).reduce((sum, w) => sum + Number(w), 0);
-  const breakdown = Object.entries(values).map(([key, value]) => ({ key, value, weight: Number(weights[key] ?? 0), neutral: ['quality','vintage'].includes(key) && value == null, contribution: (value == null ? key === 'quality' ? QUALITY_POLICY.neutral : key === 'vintage' ? VINTAGE_POLICY.neutral : 0 : value) * Number(weights[key] ?? 0) / totalWeight }));
+  const breakdown = Object.entries(values).map(([key, value]) => ({ key, value, weight: Number(weights[key] ?? 0), neutral: ['quality','vintage','value'].includes(key) && value == null, contribution: (value == null ? key === 'quality' ? QUALITY_POLICY.neutral : key === 'vintage' ? VINTAGE_POLICY.neutral : key === 'value' ? 50 : 0 : value) * Number(weights[key] ?? 0) / totalWeight }));
   const coverage = breakdown.filter(b => b.value != null).reduce((sum, b) => sum + b.weight, 0) / totalWeight;
   const score = breakdown.reduce((sum, b) => sum + b.contribution, 0);
   const warnings = [...listing.warnings, ...(listing.criticWarnings || []), ...criticComposite.conflicts];
@@ -111,6 +111,11 @@ export function filterRankedInventory(analyses, filters = {}) {
     if (filters.publication && !a.professional.some(r => publicationName(r.publication || r.critic) === filters.publication)) return false;
     if (filters.verifiedOnly && !a.criticComposite.verifiedCount) return false;
     if (filters.hideUncertain && a.pendingMatches.some(m => m.observation.kind === 'critic')) return false;
+    if(filters.producer && !normalized(w.producer || w.rawTitle).includes(normalized(filters.producer)))return false;
+    if(filters.maxLotPrice && l.price>Number(filters.maxLotPrice))return false;
+    if(filters.minLotSavings && (a.marketIntelligence.packageDiscount==null || a.marketIntelligence.packageDiscount<Number(filters.minLotSavings)))return false;
+    if(filters.verifiedAfter && (!a.marketIntelligence.lastVerifiedAt || Date.parse(a.marketIntelligence.lastVerifiedAt)<Date.parse(filters.verifiedAfter)))return false;
+    if(filters.pricingConfidence && a.marketIntelligence.pricingConfidence!==filters.pricingConfidence)return false;
     if(filters.subregion && !a.vintageIntelligence.geography.path.some(n=>n.level==='subregion' && geoKeyForFilter(n.name)===geoKeyForFilter(filters.subregion))) return false;
     if(filters.style && geoKeyForFilter(a.vintageIntelligence.geography.style)!==geoKeyForFilter(filters.style)) return false;
     if(filters.appellation && geoKeyForFilter(a.vintageIntelligence.geography.appellation)!==geoKeyForFilter(filters.appellation)) return false;
@@ -124,7 +129,7 @@ export function filterRankedInventory(analyses, filters = {}) {
     return true;
   });
   const sort = filters.sort ?? 'opportunity';
-  const marketSort={discount:a=>a.discount,dollarDiscount:a=>a.marketIntelligence.dollarDiscount,marketLow:a=>a.marketIntelligence.lowestPrice,marketMedian:a=>a.referencePrice,marketOffers:a=>a.marketIntelligence.offerCount,marketConfidence:a=>a.marketIntelligence.confidence,marketContribution:a=>a.breakdown.find(b=>b.key==='value').contribution};
+  const marketSort={lotSavings:a=>a.marketIntelligence.packageDiscount,qualityValue:a=>(a.quality ?? 50)*.6+(a.marketIntelligence.component ?? 50)*.4,discount:a=>a.discount,dollarDiscount:a=>a.marketIntelligence.dollarDiscount,marketLow:a=>a.marketIntelligence.lowestPrice,marketMedian:a=>a.referencePrice,marketOffers:a=>a.marketIntelligence.offerCount,marketConfidence:a=>a.marketIntelligence.confidence,marketContribution:a=>a.breakdown.find(b=>b.key==='value').contribution};
   if(marketSort[sort]) { const get=marketSort[sort],ascending=['marketLow','marketMedian'].includes(sort); rows.sort((a,b)=>get(a)==null?(get(b)==null?b.score-a.score:1):get(b)==null?-1:(ascending?get(a)-get(b):get(b)-get(a)) || b.score-a.score); return rows.map((a,i)=>({...a,rank:i+1})); }
   if(['vintage','vintageTier','vintageContribution'].includes(sort)) { rows.sort((a,b)=>(sort==='vintageContribution'?b.breakdown.find(x=>x.key==='vintage').contribution-a.breakdown.find(x=>x.key==='vintage').contribution:sort==='vintageTier'?(a.vintage==null?99:VINTAGE_POLICY.tiers.findIndex(([t])=>t===a.vintageIntelligence.tier))-(b.vintage==null?99:VINTAGE_POLICY.tiers.findIndex(([t])=>t===b.vintageIntelligence.tier)):(b.vintage ?? -1)-(a.vintage ?? -1)) || b.score-a.score); return rows.map((a,i)=>({...a,rank:i+1})); }
   rows.sort(sort === 'price' ? (a, b) => a.listing.unitPrice - b.listing.unitPrice : sort === 'quality' ? (a, b) => (b.quality ?? -1) - (a.quality ?? -1) : (a, b) => b.score - a.score || b.coverage - a.coverage || a.listing.unitPrice - b.listing.unitPrice || a.listing.id.localeCompare(b.listing.id));
@@ -138,6 +143,7 @@ export function validatePreferences(input) {
   for (const k of ['marketMaxAgeHours', 'inventoryMaxAgeHours']) if (!Number.isFinite(Number(p[k])) || Number(p[k]) < 1 || Number(p[k]) > 8760) throw new Error('Freshness limits must be 1–8760 hours.');
   if (!Number.isFinite(Number(p.matchThreshold)) || Number(p.matchThreshold) < .95 || Number(p.matchThreshold) > 1) throw new Error('Automatic match threshold must be .95–1.');
   if (!Array.isArray(p.preferredRegions) || p.preferredRegions.length > 30 || p.preferredRegions.some(r => typeof r !== 'string' || r.length > 100)) throw new Error('Invalid preferred regions.');
+  for(const k of ['marketMinComparables','marketHighComparables']) if(p[k]!=null && (!Number.isInteger(Number(p[k])) || p[k]<1 || p[k]>50))throw new Error('Comparable thresholds must be 1–50.');
   if(p.marketScope && !['US','worldwide'].includes(p.marketScope)) throw new Error('Market scope must be US or worldwide.');
   if(p.baseCurrency && !Intl.supportedValuesOf('currency').includes(p.baseCurrency)) throw new Error('Invalid comparison currency.');
   return p;

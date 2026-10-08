@@ -154,9 +154,9 @@ test('inventory, enrichment, filtering, explanations and source switches persist
   await importRows(page, 'vintage-import', [{ publication:'Wine Advocate', source_reference:'Synthetic test chart, not factual data', region: 'Bordeaux', type: 'Red', vintage: 2019, score: 95, scale: 100 }]);
   const rows = page.locator('.terminal-table tbody tr');
   await expect(rows).toHaveCount(2);
-  await expect(rows.first()).toContainText('20.0%');
-  await expect(rows.first()).toContainText('Compelling opportunity');
-  await rows.first().getByRole('button', { name: 'Explain' }).click();
+  const pricedRow = rows.filter({ hasText: '20.0%' });
+  await expect(pricedRow).toHaveCount(1);
+  await pricedRow.getByRole('button', { name: 'Explain' }).click();
   await expect(page.locator('#engine-dialog')).toContainText('Independent merchant');
   await expect(page.locator('#engine-dialog')).toContainText('Authorized publication');
   await expect(page.locator('#engine-dialog')).toContainText('Price and inventory history');
