@@ -46,4 +46,6 @@ Collect the vintage years covered by your inventory where possible; the full cha
 
 ## Processing after the files arrive
 
-Transcribe or parse the supplied charts, preserve original values and references, flag uncertain readings, normalize geography and documented rating scales, and import into the existing app. Validate matches against the private Flickinger reference workbook. Prefer the most specific applicable geography/type, retain broader fallbacks and source disagreement, and leave unsupported or missing information unassessed with neutral treatment. Historical charts can be reused locally; a live feed or frequent updates are unnecessary. New chart editions can be imported later when useful.
+Transcribe or parse the supplied charts, preserve original values and references, flag uncertain readings, normalize geography and documented rating scales, and import into the existing app. Validate matches against the private Flickinger reference workbook. Prefer the most specific applicable geography/type, retain broader fallbacks and source disagreement, and leave unsupported or missing information unassessed with available-evidence reweighting. Historical charts can be reused locally; a live feed or frequent updates are unnecessary. New chart editions can be imported later when useful.
+
+Current, prioritized requests and exact missing appellation/year counts: [QUALITY_COVERAGE_REPORT.md](QUALITY_COVERAGE_REPORT.md).

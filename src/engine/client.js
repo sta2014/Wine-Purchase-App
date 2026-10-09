@@ -12,7 +12,12 @@ export class EngineClient {
       const legacy = !raw && this.storage.browserDatabase ? this.storage.getLegacy() : null;
       raw ||= legacy; this.recoveryRaw = raw;
       this.state = raw ? validateBackup(raw) : initialState();
-      if (legacy) {
+      const previous=typeof raw==='string'?JSON.parse(raw):raw;
+      if(previous && previous.qualityModelVersion!==2 && this.storage.browserDatabase){
+        if(!await this.storage.getItem('wine-intelligence.before-quality.v1'))await this.storage.setItem('wine-intelligence.before-quality.v1',previous);
+        await this.storage.setItem(ENGINE_KEY,this.state,legacy?0:previous.revision);
+      }
+      if (legacy && previous.qualityModelVersion===2) {
         await this.storage.setItem(ENGINE_KEY, this.state, 0);
         // Remove only the old engine snapshot, after the new transaction commits.
         try { this.storage.removeLegacy(); } catch { /* A retained copy is harmless. */ }
@@ -68,13 +73,6 @@ export class EngineClient {
     this.state = validateBackup(result);
   }
   async reload() { if (this.mode === 'server') await this.connect(this.base, this.token); }
-  async research(wineId) {
-    if (this.mode !== 'server') throw new Error('Automatic web research requires a connected engine. Use the browser search links below for now.');
-    const response = await fetch(this.base + '/research', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}) }, body: JSON.stringify({ wineId }), signal: AbortSignal.timeout(25000) });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || 'Web research failed.');
-    return result;
-  }
   async critics(wineId, force = false) {
     if (this.mode !== 'server') throw new Error('Independent automatic lookup requires a connected engine and an approved critic feed. Use publication search links and add a verified review here.');
     const response = await fetch(this.base + '/critics', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}) }, body: JSON.stringify({ wineId, force }) });
@@ -88,16 +86,6 @@ export class EngineClient {
     const result=await response.json();
     if(!response.ok) throw new Error(result.error || 'Vintage refresh failed.');
     await this.reload(); return result;
-  }
-  async marketResearch(path='',body={}) {
-    if(this.mode!=='server')throw new Error('Automatic research needs a running connected engine. No paid API is required.');
-    const response=await fetch(this.base+'/market-research'+(path?'/'+path:''),{method:path?'POST':'GET',headers:{...(path?{'Content-Type':'application/json'}:{}),...(this.token?{Authorization:`Bearer ${this.token}`}:{})},...(path?{body:JSON.stringify(body)}:{})});
-    const result=await response.json();if(!response.ok)throw new Error(result.error || 'Market research failed.');return result;
-  }
-  async market(wineId,force=false) {
-    if(this.mode!=='server') throw new Error('Automatic market research requires a running connected engine and permitted public retailer sources. Verified manual offers work on this device.');
-    const response=await fetch(this.base+'/market',{method:'POST',headers:{'Content-Type':'application/json',...(this.token?{Authorization:`Bearer ${this.token}`}:{})},body:JSON.stringify({wineId,force})});
-    const result=await response.json();if(!response.ok) throw new Error(result.error || 'Market refresh failed.');await this.reload();return result;
   }
   async refresh() {
     if (this.mode !== 'server') throw new Error('Automatic retrieval requires a running engine service and an approved feed. Browser mode supports manual imports.');

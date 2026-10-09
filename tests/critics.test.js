@@ -86,8 +86,7 @@ test('retailer scores remain unverified even when import includes a verification
   assert.equal(s.reviews[0].verified,false); assert.equal(rankInventory(s,{verifiedOnly:true},now).length,0);
 });
 test('community sources cannot be relabeled as professional reviews',()=>{
-  const s=ingest(inventory(),'critic-import',[row({critic:'Vivino',score:5,scale:5}),row({critic:'CellarTracker',score:99})]);
-  const a=rankInventory(s,{},now)[0]; assert.equal(a.quality,null); assert.equal(a.community.length,2);
+  for(const critic of ['Vivino','CellarTracker'])assert.throws(()=>ingest(inventory(),'critic-import',[row({critic,score:99})]),/professional critic/);
 });
 test('composite balances publications, not review-count or maximum; confidence reflects disagreement',()=>{
   const review=(critic,score,reviewer='')=>({kind:'critic',critic,score,scoreHigh:score,scale:100,reviewer});
@@ -131,9 +130,9 @@ test('manual canonical correction persists through reimport and backup',()=>{
   s=ingest(validateBackup(s),'flickinger',[row({producer:'',WA:96})],'2026-10-07T13:00:00Z');
   assert.equal(s.listings[0].id,id); assert.equal(s.listings[0].wineId,corrected); assert.equal(s.reviews.length,1); assert.equal(s.reviews[0].id,reviewId); assert.equal(rankInventory(s,{},now)[0].quality,96);
 });
-test('missing critic remains missing with neutral contribution; high-end quality difference is interpretable',()=>{
-  const a=rankInventory(inventory(),{},now)[0]; assert.equal(a.quality,null); assert.equal(a.criticComponent,null); assert.equal(a.coverage,0); assert.equal(a.breakdown.find(b=>b.key==='quality').contribution,17.5);
-  assert.ok(qualityComponent(100)-qualityComponent(98)>qualityComponent(90)-qualityComponent(88));
+test('missing critic remains missing; professional scale normalization is transparent',()=>{
+  const a=rankInventory(inventory(),{},now)[0]; assert.equal(a.quality,null); assert.equal(a.criticComponent,null); assert.equal(a.coverage,0); assert.equal(a.breakdown.find(b=>b.key==='quality').contribution,0);
+  assert.equal(qualityComponent(98),98);assert.equal(qualityComponent(null),null);
   assert.ok(qualityComponent(97)-qualityComponent(96)<10);
 });
 test('provider outage/authentication preserves review facts, logs failure and never means no review exists',async()=>{
@@ -149,7 +148,7 @@ test('approved provider fixture retrieves, matches, caches and deduplicates; cri
   const db=new EngineDatabase(':memory:'); let calls=0;
   try {
     let s=inventory(); Object.assign(s.sources.find(x=>x.id==='critic-import'),{method:'json',accessApproved:true,url:'https://licensed.example/critic-feed'});
-    Object.assign(s.sources.find(x=>x.id==='market-import'),{method:'json',accessApproved:true,url:'https://licensed.example/prices'}); db.save(s);
+    Object.assign(s.sources.find(x=>x.id==='vintage-import'),{method:'json',accessApproved:true,url:'https://licensed.example/vintages'}); db.save(s);
     const refresh=new RefreshService(db,{clock:()=>now,adapter:{async fetch(source){assert.equal(source.category,'critic');calls++;return {dataset:{rows:[row({critic:'WA',score:'96–98',source_reference:'synthetic authorized fixture'})]}};}}});
     const service=new CriticLookupService(db,refresh,{clock:()=>now}); const id=s.listings[0].wineId;
     const first=await service.lookup(id); assert.equal(first.status,'found'); assert.equal(first.providers[0].acceptedCount,1); assert.equal(db.load().reviews.length,1);

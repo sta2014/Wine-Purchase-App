@@ -1,15 +1,14 @@
-import { ensureMarketResearch } from './retailers.js';
-import { normalizeMarketOffer, upsertMarket, marketOfferKey } from './market.js';
+import {QUALITY_WEIGHTS,migrateQuality} from './quality-settings.js';
 import { normalizeVintageAssessment, vintageRecordKey, upsertVintage } from './vintages.js';
-import { publicationName, criticInfo, isCommunity, parseCriticScore, retailerScores, upsertReview, reviewKey } from './critics.js';
+import { publicationName, criticInfo, criticReviewer, isCommunity, parseCriticScore, retailerScores, upsertReview, reviewKey } from './critics.js';
 import { identifyWine, number, packageSummary } from './identity.js';
 import { identifyListings } from './listings.js';
 import { defaultSources, validateSource, STATUSES, ensureVintageSources } from './sources.js';
 import { rankInventory, validatePreferences } from './ranking.js';
 export const ENGINE_KEY = 'wine-intelligence.v1';
-export const DEFAULT_WEIGHTS = { value: 35, quality: 35, vintage: 10, window: 10, confidence: 10 };
+export const DEFAULT_WEIGHTS = { ...QUALITY_WEIGHTS };
 export function initialState() {
-  return { schemaVersion: 1, revision: 0, sources: defaultSources(), wines: {}, listings: [], market: [], reviews: [], vintages: [], history: [], scoreHistory: [], runs: [], decisions: {}, preferences: { weights: { ...DEFAULT_WEIGHTS }, marketMaxAgeHours: 48, inventoryMaxAgeHours: 48, matchThreshold: .95, preferredRegions: [] } };
+  return { schemaVersion: 1, qualityModelVersion:2, revision: 0, sources: defaultSources(), wines: {}, listings: [], reviews: [], vintages: [], history: [], scoreHistory: [], runs: [], decisions: {}, preferences: { weights: { ...DEFAULT_WEIGHTS },  inventoryMaxAgeHours: 48, matchThreshold: .95, preferredRegions: [] } };
 }
 const header = s => String(s).trim().toLowerCase().replace(/[\s\/-]+/g, '_');
 const ALIASES = { wine_name: 'raw_title', wine: 'raw_title', name: 'raw_title', title: 'raw_title', vintage_year: 'vintage', size_ml: 'bottle_ml', bottle_size_ml: 'bottle_ml', bottle_size: 'format', size: 'format', pack_size: 'pack_count', bottle_count: 'pack_count', quantity: 'available_quantity', available: 'available_quantity', asking_price: 'price', askingprice: 'price', score_scale: 'scale', drinking_start: 'drink_from', drinking_end: 'drink_to', url: 'source_url', sku: 'external_id', color: 'type', colour: 'type', wine_type: 'type' };
@@ -67,7 +66,7 @@ export function normalizeRow(raw, kind, source, now) {
   provenance.rawTitle = wine.rawTitle;
   provenance.warnings = [...wine.warnings];
   const base = { ...provenance, wine, wineId: wine.id, bottleMl: wine.bottleMl, packCount: wine.packCount, packaging: wine.packaging, ...packageSummary(wine) };
-  if (['inventory', 'market'].includes(kind)) {
+  if (kind === 'inventory') {
     const currency = String(r.currency ?? 'USD').toUpperCase();
     if (!/^[A-Z]{3}$/.test(currency)) throw new Error('Currency requires a three-letter code.');
     if (!Intl.supportedValuesOf('currency').includes(currency)) throw new Error('Invalid currency.');
@@ -83,15 +82,16 @@ export function normalizeRow(raw, kind, source, now) {
     const isAvailable = r.is_available === false || String(r.is_available).toLowerCase() === 'false' || availableQuantity === 0 ? false : true;
     const priceTerms = String(r.price_terms ?? 'unspecified').toLowerCase();
     if (!['unspecified', 'ex_tax', 'tax_included', 'landed'].includes(priceTerms)) throw new Error('Unknown price_terms.');
-    if (priceTerms === 'unspecified') base.warnings.push('Taxes/shipping terms unspecified; comparison is indicative, not executable arbitrage.');
+    if (priceTerms === 'unspecified') base.warnings.push('Taxes/shipping terms unspecified.');
     const saleType = String(r.sale_type ?? 'retail');
     if (!['retail', 'auction'].includes(saleType)) throw new Error('sale_type must be retail or auction.');
     const offer = { ...base, price: packagePrice, unitPrice, pricePer750: unitPrice * 750 / wine.bottleMl, currency, availableQuantity, isAvailable, priceTerms, saleType, merchant: String(r.merchant ?? source.name).slice(0, 150), externalId: String(r.external_id ?? '').trim().slice(0, 150) };
-    return kind==='market' ? normalizeMarketOffer(r,offer,source,now) : offer;
+    return offer;
   }
-  if (['critic', 'community'].includes(kind)) {
+  if (kind==='critic') {
     const critic = String(r.publication ?? r.critic ?? '').trim();
     if (!critic) throw new Error('Review critic/publication is required.');
+    if (isCommunity(critic)) throw new Error('Only professional critic reviews are supported.');
     const scale = number(r.scale ?? criticInfo(critic)?.scale ?? 100, 'Score scale', { min: 1, max: 100 });
     const parsed = parseCriticScore(r.score, scale);
     const { score, scoreHigh } = parsed;
@@ -101,14 +101,20 @@ export function normalizeRow(raw, kind, source, now) {
     if (score == null && drinkFrom == null) throw new Error('Review needs a score or a drinking window.');
     const reviewDate = r.review_date ? stamp(r.review_date, now) : null;
     const verification = ['manually_verified', 'provider_verified'].includes(r.verification) && r.verified === true && (base.sourceURL || r.source_reference) ? r.verification : 'source_import';
-    return { ...base, critic: publicationName(critic).slice(0, 150), publication: publicationName(critic).slice(0, 150), reviewer: String(r.reviewer ?? (r.publication && r.critic && r.publication !== r.critic ? r.critic : '')).slice(0, 150), ...parsed, scale, drinkFrom, drinkTo, reviewDate, sourceReference: String(r.source_reference ?? '').slice(0, 500), verification, verified: verification !== 'source_import', formatSpecific: r.format_specific === true, notes: String(r.notes ?? '').slice(0, 4000), kind: kind === 'community' || isCommunity(critic) ? 'community' : 'critic' };
+    return { ...base, critic: publicationName(critic).slice(0, 150), publication: publicationName(critic).slice(0, 150), reviewer: String(r.reviewer ?? (criticReviewer(critic) || (r.publication && r.critic && r.publication !== r.critic ? r.critic : ''))).slice(0, 150), ...parsed, scale, drinkFrom, drinkTo, reviewDate, reviewStage: ['final','barrel','preliminary'].includes(r.review_stage)?r.review_stage:scoreHigh>score?'preliminary':'unspecified', trend: r.trend == null ? null : String(r.trend).slice(0,300), sourceReference: String(r.source_reference ?? '').slice(0, 500), verification, verified: verification !== 'source_import', formatSpecific: r.format_specific === true, notes: String(r.notes ?? '').slice(0, 4000), kind: 'critic' };
   }
   throw new Error('Unknown dataset category.');
 }
 export function ingestDataset(state, sourceId, dataset, now = new Date().toISOString()) {
   const source = state.sources.find(s => s.id === sourceId);
   if (!source?.enabled) throw new Error('Select an enabled source.');
-  const rows = dataset.rows;
+  let rows = dataset.rows;
+  if(source.category==='critic' && Array.isArray(rows)) rows=rows.flatMap(raw=>{
+    if(raw.critic || raw.publication || raw.score!=null)return [raw];
+    const extracted=retailerScores(raw);
+    if(extracted.warnings.length)throw new Error(`Critic import: ${extracted.warnings.join('; ')}`);
+    return extracted.scores.length?extracted.scores.map(r=>({...raw,critic:r.critic,reviewer:raw.reviewer ?? r.reviewer,score:r.rawScore,scale:r.scale})): [raw];
+  });
   if (!Array.isArray(rows) || rows.length > 10000) throw new Error('A dataset may contain at most 10,000 rows.');
   if (!rows.length && !dataset.completeSnapshot) throw new Error('Empty import requires explicit completeSnapshot: true.');
   // Validate every row before any updates, including snapshot removal.
@@ -135,15 +141,15 @@ export function ingestDataset(state, sourceId, dataset, now = new Date().toISOSt
   if (source.category === 'inventory') normalized = identifyListings(normalized, source, state.listings);
   const next = structuredClone(state);
   const reviewIndex = new Map(next.reviews.map(r=>[reviewKey(r), r]));
-  const marketIndex = new Map(next.market.map(r=>[marketOfferKey(r),r]));
   const listingIndexes = new Map(next.listings.map((l,i)=>[l.id,i]));
+  const previousListings=new Map(state.listings.map(l=>[l.id,l]));
   const runId = crypto.randomUUID();
   const ids = new Set();
   for (const item of normalized) {
     if (item.wine) {
       const existing = next.wines[item.wineId];
       // Enrichment with fewer descriptive fields must not erase inventory metadata.
-      next.wines[item.wineId] = existing ? { ...existing } : item.wine;
+      next.wines[item.wineId] = existing ? source.category==='inventory'?{...existing,...item.wine}:{...existing} : item.wine;
       if (existing) for (const field of ['region', 'subregion', 'style', 'country', 'type']) if ((source.category==='inventory' && item.wine[field] && item.wine[field]!=='Unknown') || !existing[field] || existing[field] === 'Unknown') next.wines[item.wineId][field] = item.wine[field];
     }
     const id = source.category === 'inventory' ? item.id : crypto.randomUUID();
@@ -157,20 +163,27 @@ export function ingestDataset(state, sourceId, dataset, now = new Date().toISOSt
       const listing = { ...record, firstSeen: old?.firstSeen ?? now, lastSeen: now };
       if (index < 0) { listingIndexes.set(id,next.listings.length); next.listings.push(listing); } else next.listings[index] = listing;
       next.history.push({ ...listing, event: old ? 'observed' : 'first_seen' });
-    } else if (['critic', 'community'].includes(source.category)) upsertReview(next, record, reviewIndex);
+    } else if (source.category==='critic') upsertReview(next, record, reviewIndex);
     else if (source.category==='vintage') { record.recordKey=vintageRecordKey(record); const previous=next.vintages.find(r=>r.recordKey===record.recordKey); const correction=previous && next.vintageCorrections?.[previous.id]; if(correction) { const fixed=normalizeVintageAssessment({...record.rawGeography,vintage:record.vintage,publication:record.publication,original_rating:record.rawRating,rating_system:record.ratingSystem,scale:record.scale,professional:record.professional,provisional:record.provisional,source_reference:record.sourceReference,context_tags:record.contextTags,notes:record.notes,...correction.fields},source,record); Object.assign(record,fixed,{recordKey:record.recordKey,rawGeography:record.rawGeography,mappingFields:correction.fields}); } upsertVintage(next,record); }
-    else upsertMarket(next,record,marketIndex);
+
   }
-  if(source.category==='market' && completeSnapshot) for(const record of next.market) if(record.sourceId===source.id && record.runId!==runId && record.availabilityStatus!=='EXPIRED') { record.revisions ||= []; record.revisions.push({price:record.price,observedAt:record.observedAt,verifiedAt:record.verifiedAt,availabilityStatus:record.availabilityStatus,event:'absent_from_complete_snapshot'}); record.availabilityStatus='EXPIRED'; record.isAvailable=false; record.observedAt=now; }
   let criticImportedCount = 0, criticWarningCount = 0;
   if (source.category === 'inventory') for (let i = 0; i < normalized.length; i++) {
     const raw = rows[inputIndexes[i]], extracted = retailerScores(raw), item = normalized[i];
     const listing = next.listings[listingIndexes.get(item.id)];
     listing.reportedRatings = extracted.rawRatings;
     listing.criticWarnings = extracted.warnings;
+    listing.notRatedCritics = extracted.notRated;
+    listing.ratingImport = {file:dataset.sourceReference || '',worksheet:dataset.worksheet || raw.import_worksheet || '',row:raw.import_row ?? inputIndexes[i]+1,column:raw.import_ratings_column || '',rawCell:extracted.rawRatings,importedAt:now};
     criticWarningCount += extracted.warnings.length;
+    if(previousListings.get(item.id)?.reportedRatings===extracted.rawRatings && extracted.warnings.length){
+      for(const old of next.reviews)if(old.sourceId===sourceId && old.wineId===item.wineId && old.verification==='retailer_reported' && !old.originalCell && !extracted.scores.some(r=>r.critic===old.publication && r.rawScore===old.rawScore))old.excludedReason='Legacy parser accepted an incomplete or malformed entry; retained for inspection and excluded from scoring after strict reimport.';
+    }
     for (const review of extracted.scores) {
-      const record = { ...item, ...review, id: crypto.randomUUID(), runId, kind: 'critic', publication: review.critic, reviewer: '', reviewDate: null, sourceReference: String(raw.source_reference ?? dataset.sourceReference ?? 'Inventory export').slice(0, 500), verification: 'retailer_reported', verified: false, formatSpecific: false, drinkFrom: null, drinkTo: null, notes: 'Reported by the inventory retailer; not independently verified.', warnings: [...item.warnings], sourceURL: item.sourceURL };
+      const record = { ...item, ...review, id: crypto.randomUUID(), runId, kind: 'critic', publication: review.critic, reviewer: review.reviewer || '', reviewDate: null, originalCell:extracted.rawRatings,importProvenance:{...listing.ratingImport,originalNotation:review.originalNotation},sourceReference: String(raw.source_reference ?? dataset.sourceReference ?? 'Inventory export').slice(0, 500), verification: 'retailer_reported', verified: false, formatSpecific: false, drinkFrom: null, drinkTo: null, notes: 'Reported by the inventory retailer; not independently verified.', warnings: [...item.warnings], sourceURL: item.sourceURL };
+      if(review.reviewer==='James Molesworth')for(const old of next.reviews){
+        if(old.verification==='retailer_reported' && old.sourceId===sourceId && old.wine?.beverageId===item.wine.beverageId && old.publication==='Jasper Morris / Inside Burgundy' && old.rawScore===review.rawScore)old.excludedReason='Legacy Flickinger JM abbreviation was misattributed; superseded by James Molesworth / Wine Spectator on reimport.';
+      }
       if (upsertReview(next, record, reviewIndex)) criticImportedCount++;
     }
   }
@@ -189,31 +202,31 @@ export function ingestDataset(state, sourceId, dataset, now = new Date().toISOSt
   return next;
 }
 export function captureScores(state, at = new Date().toISOString(), runId = 'preferences', wineIds=null) {
-  for (const row of rankInventory(wineIds?{...state,listings:state.listings.filter(l=>wineIds.includes(l.wineId))}:state, { available: false }, new Date(at))) state.scoreHistory.push({ listingId: row.listing.id, at, runId, score: row.score, coverage: row.coverage, discount: row.discount, preferences: structuredClone(state.preferences), criticComposite: row.quality, criticComponent: row.criticComponent, criticContribution: row.breakdown.find(b => b.key === 'quality').contribution, criticEvidence: row.professional.map(r => r.id), criticConfidence: row.criticComposite.confidence, vintageComposite:row.vintage,vintageComponent:row.vintageComponent,vintageContribution:row.breakdown.find(b=>b.key==='vintage').contribution,vintageConfidence:row.vintageIntelligence.confidence,vintageGeography:row.vintageIntelligence.regionUsed,vintageEvidence:row.assessments.map(r=>({id:r.id,original:r.rawRating,normalized:r.normalizedScore,publication:r.publication,reference:r.sourceReference || r.sourceURL})),marketReference:row.referencePrice,marketLow:row.marketIntelligence.lowestPrice,marketConfidence:row.marketIntelligence.confidence,marketContribution:row.breakdown.find(b=>b.key==='value').contribution,marketEvidence:row.marketEvidence.map(r=>({id:r.id,price:r.comparisonPrice,currency:r.comparisonCurrency,verifiedAt:r.verifiedAt,url:r.offerURL || r.sourceURL})),algorithmVersion: 4 });
+  for(const row of rankInventory(wineIds?{...state,listings:state.listings.filter(l=>wineIds.includes(l.wineId))}:state,{available:false},new Date(at))) state.scoreHistory.push({listingId:row.listing.id,at,runId,score:row.score,coverage:row.coverage,confidence:row.rankingConfidence,preferences:structuredClone(state.preferences),components:Object.fromEntries(row.breakdown.map(b=>[b.key,b.value])),criticContribution:row.breakdown.find(b=>b.key==='quality').contribution,vintageEvidence:row.assessments.map(r=>({id:r.id,original:r.rawRating,normalized:r.normalizedScore,reference:r.sourceReference || r.sourceURL})),algorithmVersion:6});
 }
 export function validateBackup(raw) {
-  const state = structuredClone(typeof raw === 'string' ? JSON.parse(raw) : raw);
+  const state = migrateQuality(structuredClone(typeof raw === 'string' ? JSON.parse(raw) : raw));
   if (state?.schemaVersion !== 1 || !state.wines || Array.isArray(state.wines) || typeof state.wines !== 'object' || !Array.isArray(state.sources) || !state.preferences?.weights || !Number.isSafeInteger(state.revision) || state.revision < 0 || !state.decisions || Array.isArray(state.decisions) || typeof state.decisions !== 'object') throw new Error('Choose an intelligence-engine v1 backup. Journal backups are separate.');
   if (state.sources.length > 200 || new Set(state.sources.map(s => s?.id)).size !== state.sources.length) throw new Error('Invalid backup sources.');
   state.sources = state.sources.map(s => ({ ...validateSource(s), ...(STATUSES.includes(s.status) ? { status: s.status } : {}) }));
   const sourceIds = new Set(state.sources.map(s => s.id));
-  for (const key of ['listings', 'market', 'reviews', 'vintages', 'history', 'scoreHistory', 'runs']) if (!Array.isArray(state[key]) || state[key].length > 100000) throw new Error(`Invalid ${key} data.`);
+  for (const key of ['listings', 'reviews', 'vintages', 'history', 'scoreHistory', 'runs']) if (!Array.isArray(state[key]) || state[key].length > 100000) throw new Error(`Invalid ${key} data.`);
   state.preferences = validatePreferences(state.preferences);
   for (const [key, wine] of Object.entries(state.wines)) {
     if (!wine || key !== wine.id || !Array.isArray(wine.warnings) || !Number.isFinite(wine.identityConfidence)) throw new Error('Backup contains inconsistent wine identities.');
     const rebuilt = identifyWine({ raw_title: wine.rawTitle, producer: wine.producer, cuvee: wine.cuvee, vineyard: wine.vineyard, appellation: wine.appellation, vintage: wine.vintage, raw_vintage: wine.rawVintage, bottle_ml: wine.bottleMl, pack_count: wine.packCount, packaging: wine.packaging, classification: wine.classification, designation: wine.designation });
     if (rebuilt.id !== wine.id || rebuilt.vintage !== wine.vintage || (wine.vintageKind && rebuilt.vintageKind !== wine.vintageKind)) throw new Error('Backup contains inconsistent wine identities or an unresolved vintage stored as a year.');
   }
-  for (const item of [...state.listings, ...state.market, ...state.reviews, ...state.history, ...state.vintages]) {
+  for (const item of [...state.listings, ...state.reviews, ...state.history, ...state.vintages]) {
     if (!item || !sourceIds.has(item.sourceId) || (item.wineId && !state.wines[item.wineId]) || !Number.isFinite(Date.parse(item.observedAt)) || !Number.isFinite(item.confidence) || item.confidence < 0 || item.confidence > 1 || !Array.isArray(item.warnings)) throw new Error('Backup contains an invalid observation.');
     safeURL(item.sourceURL);
     if (item.price != null && (!Number.isFinite(item.price) || item.price <= 0)) throw new Error('Invalid backup price.');
     if (item.score != null && (!Number.isFinite(item.score) || item.score < 0 || item.score > item.scale)) throw new Error('Invalid backup score.');
   }
-  for (const key of ['listings', 'market', 'reviews', 'vintages', 'runs']) if (new Set(state[key].map(r => r.id)).size !== state[key].length) throw new Error('Duplicate backup record IDs.');
-  for (const l of [...state.listings, ...state.market]) if (!state.wines[l.wineId] || !Number.isFinite(l.unitPrice) || l.unitPrice <= 0 || !Intl.supportedValuesOf('currency').includes(l.currency) || typeof l.isAvailable !== 'boolean') throw new Error('Invalid backup listing.');
-  for (const r of state.scoreHistory) if (!Number.isFinite(r.score) || !Number.isFinite(r.coverage) || !Number.isFinite(Date.parse(r.at))) throw new Error('Invalid backup opportunity history.');
-  for (const [id, d] of Object.entries(state.decisions)) if (!d || !state.wines[d.wineId] || !['approved', 'rejected'].includes(d.state) || ![...state.market, ...state.reviews].some(r => r.id === id)) throw new Error('Invalid backup match decision.');
+  for (const key of ['listings', 'reviews', 'vintages', 'runs']) if (new Set(state[key].map(r => r.id)).size !== state[key].length) throw new Error('Duplicate backup record IDs.');
+  for (const l of state.listings) if (!state.wines[l.wineId] || !Number.isFinite(l.unitPrice) || l.unitPrice <= 0 || !Intl.supportedValuesOf('currency').includes(l.currency) || typeof l.isAvailable !== 'boolean') throw new Error('Invalid backup listing.');
+  for (const r of state.scoreHistory) if ((r.score!=null && !Number.isFinite(r.score)) || !Number.isFinite(r.coverage) || !Number.isFinite(Date.parse(r.at))) throw new Error('Invalid backup opportunity history.');
+  for (const [id, d] of Object.entries(state.decisions)) if (!d || !state.wines[d.wineId] || !['approved', 'rejected'].includes(d.state) || !state.reviews.some(r => r.id === id)) throw new Error('Invalid backup match decision.');
   if (state.identityCorrections) {
     if (typeof state.identityCorrections !== 'object' || Array.isArray(state.identityCorrections) || Object.keys(state.identityCorrections).length > 100000) throw new Error('Invalid identity corrections.');
     for (const [id,c] of Object.entries(state.identityCorrections)) if (!state.wines[id] || !state.wines[c?.newWineId] || !c.fields || Object.values(c.fields).some(v=>typeof v!=='string' || v.length>250) || !Number.isFinite(Date.parse(c.at))) throw new Error('Invalid identity correction.');
@@ -224,12 +237,6 @@ export function validateBackup(raw) {
     if (r.scoreHigh != null && (!Number.isFinite(r.scoreHigh) || r.scoreHigh < r.score || r.scoreHigh > r.scale)) throw new Error('Invalid review range.');
     if (r.verified != null && typeof r.verified !== 'boolean') throw new Error('Invalid review verification.');
   }
-  if(state.marketResearch) {
-    const r=state.marketResearch;
-    if(!Array.isArray(r.sources) || r.sources.length>100 || !Array.isArray(r.jobs) || r.jobs.length>20000 || !Array.isArray(r.failures) || r.failures.length>100000 || !r.cache || typeof r.cache!=='object') throw new Error('Invalid market research backup.');
-    for(const s of r.sources) {const u=new URL(s.homepage);if(u.protocol!=='https:' || u.username || u.password || typeof s.enabled!=='boolean')throw new Error('Invalid retailer source backup.');}
-    if(new Set(r.jobs.map(j=>j.id)).size!==r.jobs.length || r.jobs.some(j=>!r.sources.some(s=>s.id===j.sourceId) || !state.wines[j.wineId] || !['queued','running','completed','error','cancelled'].includes(j.status)))throw new Error('Invalid research job backup.');
-  }
   for(const name of ['geographyCorrections','vintageCorrections','vintageDecisions']) {
     if(state[name] && (typeof state[name]!=='object' || Array.isArray(state[name]) || Object.keys(state[name]).length>100000)) throw new Error(`Invalid ${name}.`);
   }
@@ -239,14 +246,6 @@ export function validateBackup(raw) {
   for(const r of state.vintages) if(r.geography) {
     const rating=normalizeVintageAssessment({...r.rawGeography,...r.mappingFields,vintage:r.vintage,publication:r.publication,original_rating:r.rawRating,rating_system:r.ratingSystem,scale:r.scale,professional:r.professional,provisional:r.provisional,source_reference:r.sourceReference},state.sources.find(s=>s.id===r.sourceId),r);
     if(rating.normalizedScore!==r.normalizedScore || rating.geography.leafId!==r.geography.leafId || rating.eligible!==r.eligible || rating.professional!==r.professional) throw new Error('Invalid normalized vintage assessment.');
-  }
-  for(const name of ['marketControls','marketCorrections','merchantReliability']) if(state[name] && (typeof state[name]!=='object' || Array.isArray(state[name]) || Object.keys(state[name]).length>100000)) throw new Error(`Invalid ${name}.`);
-  for(const [id,c] of Object.entries(state.marketControls || {})) if(!state.market.some(r=>r.id===id) || typeof c.excluded!=='boolean' || (c.duplicateOf && !state.market.some(r=>r.id===c.duplicateOf))) throw new Error('Invalid market control.');
-  for(const [id,c] of Object.entries(state.marketCorrections || {})) if(!state.market.some(r=>r.id===id) || !Number.isInteger(c.bottleMl) || c.bottleMl<50 || c.bottleMl>30000 || !Number.isInteger(c.packCount) || c.packCount<1 || c.packCount>120 || !['loose','owc','carton'].includes(c.packaging)) throw new Error('Invalid market format correction.');
-  if(Object.values(state.merchantReliability || {}).some(v=>!Number.isFinite(v) || v<0 || v>1)) throw new Error('Invalid merchant reliability.');
-  for(const r of state.market) if(r.marketSchema===1) {
-    if(!['CONFIRMED_IN_STOCK','LIKELY_IN_STOCK','PRE_ARRIVAL','FUTURES','OUT_OF_STOCK','SOLD','EXPIRED','UNKNOWN','ACTIVE_AUCTION'].includes(r.availabilityStatus) || typeof r.availabilityVerified!=='boolean' || !Number.isFinite(r.merchantConfidence) || r.merchantConfidence<0 || r.merchantConfidence>1 || !Number.isFinite(r.verificationConfidence) || r.verificationConfidence<0 || r.verificationConfidence>1 || (r.verifiedAt && !Number.isFinite(Date.parse(r.verifiedAt)))) throw new Error('Invalid verified market offer.');
-    safeURL(r.offerURL);safeURL(r.merchantURL);
   }
   return structuredClone(ensureVintageSources(state));
 }

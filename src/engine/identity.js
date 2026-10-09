@@ -58,7 +58,9 @@ export function identifyWine(row, aliases = PRODUCERS) {
   const rawTitle = bounded(row.raw_title ?? row.name ?? row.wine, 'Wine title');
   if (!rawTitle) throw new Error('A wine title is required.');
   const warnings = [];
-  const years = [...new Set(rawTitle.match(/\b(?:18|19|20)\d{2}\b/g) ?? [])];
+  // Explicitly labelled release/reconditioning dates are not wine vintages.
+  const vintageTitle=rawTitle.replace(/\([^)]*\b(?:reconditioned|recorked|rebottled|en\s+primeur\s+release)\b[^)]*\)/gi,'');
+  const years = [...new Set(vintageTitle.match(/\b(?:18|19|20)\d{2}\b/g) ?? [])];
   if (years.length > 1) warnings.push('Multiple vintage years in title; identity requires review.');
   const { vintage, vintageKind, rawVintage } = readVintage(row, years, warnings);
   if (vintage && years.length === 1 && Number(years[0]) !== vintage) warnings.push('Explicit vintage conflicts with title.');

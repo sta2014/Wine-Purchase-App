@@ -33,7 +33,7 @@ test('vintage context filters combine with critic scores and survive reload with
   await expect(table).toContainText('98.0 /100');await expect(table.locator('tbody tr')).toHaveCount(3);
   await page.getByLabel('Rank by',{exact:true}).selectOption('vintage');await expect(table.locator('tbody tr').first()).toContainText('Barolo');
   await table.locator('tbody tr').first().getByRole('button',{name:'Explain',exact:true}).click();
-  await expect(dialog).toContainText('Vintage component 95.0 /100');await expect(dialog).toContainText('Critic and vintage components are separate');
+  await expect(dialog.getByRole('row',{name:'Regional vintage quality 98.0 25 25.0 24.5',exact:true})).toBeVisible();await expect(dialog).toContainText('Vintage component 98.0 /100');await expect(dialog).toContainText('Critic and vintage components are separate');
 });
 
 test('manual vintage entry, source correction and wine mapping persist across reimport',async({page})=>{

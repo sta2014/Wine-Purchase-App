@@ -33,7 +33,7 @@ test('legacy engine data migrates to IndexedDB without changing journal data', a
   const journal = await page.evaluate(() => localStorage.getItem('wine-journal.v1'));
   await page.evaluate(state => localStorage.setItem('wine-intelligence.v1', JSON.stringify(state)), legacy);
   await page.reload();
-  await page.getByRole('button', { name: 'Buying terminal', exact: true }).click();
+  await page.getByRole('button', { name: 'Quality terminal', exact: true }).click();
   await expect(page.locator('#engine-results .terminal-table tbody tr')).toHaveCount(1);
   expect(JSON.parse(await readEngineRaw(page))).toEqual(legacy);
   expect(await page.evaluate(() => localStorage.getItem('wine-intelligence.v1'))).toBeNull();
@@ -105,75 +105,33 @@ test('a stale browser tab cannot overwrite a newer committed inventory', async (
   await other.close();
 });
 
-test('price research uses exact package queries and leaves verified comparisons unchanged', async ({ page }) => {
-  await importRows(page, 'flickinger', [{ ...wine, raw_title: 'Example Estate Reserve 2019 6x750ml OWC', pack_count: 6, packaging: 'owc', price: 480, currency: 'USD' }]);
-  const before = await readEngineRaw(page);
-  await page.getByRole('button', { name: 'Research prices', exact: true }).click();
-  const dialog = page.locator('#engine-dialog');
-  await expect(dialog.getByLabel('Wine web search query')).toHaveValue(/2019 750ml 6 bottles original wooden case/);
-  const link = dialog.getByRole('link', { name: /Search Google/ });
-  expect(new URL(await link.getAttribute('href')).searchParams.get('q')).toContain('-site:wine-searcher.com');
-  await expect(dialog.getByRole('button', { name: 'Find retailer results' })).toBeDisabled();
-  await expect(dialog).toContainText('connect an engine');
-  await page.locator('#engine-dialog-close').click();
-  expect(await readEngineRaw(page)).toEqual(before);
-  await expect(page.locator('.terminal-table tbody tr')).toContainText('0 confirmed merchant comps');
-});
-
-test('connected search renders escaped unverified leads without promoting snippet prices', async ({ page }) => {
-  await importRows(page, 'flickinger', [{ ...wine, price: 80, currency: 'USD' }]);
-  const state = JSON.parse(await readEngineRaw(page));
-  let researched = '';
-  await page.route('https://engine.example/api/**', async route => {
-    if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'content-type', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' } });
-    const path = new URL(route.request().url()).pathname;
-    if (path === '/api/research') researched = route.request().postDataJSON().wineId;
-    const body = path === '/api/engine' ? state : { status: 'ok', provider: 'Test search fixture', query: 'Example', retrievedAt: new Date().toISOString(), message: 'Search leads only.', results: [{ url: 'https://merchant.example/wine', title: 'Synthetic merchant', merchantHost: 'merchant.example', description: '<img src=x onerror=alert(1)> $100 search snippet', verification: 'unverified' }] };
-    await route.fulfill({ contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify(body) });
-  });
-  await page.getByRole('button', { name: 'Connect engine', exact: true }).click();
-  await page.getByLabel('Engine API URL').fill('https://engine.example/api');
-  await page.locator('#engine-connect-form').getByRole('button', { name: 'Connect engine', exact: true }).click();
-  await expect(page.locator('#engine-mode')).toContainText('CONNECTED ENGINE');
-  await page.getByRole('button', { name: 'Research prices', exact: true }).click();
-  await page.getByRole('button', { name: 'Find retailer results' }).click();
-  await expect(page.locator('#engine-research-results')).toContainText('UNVERIFIED SEARCH LEAD');
-  await expect(page.locator('#engine-research-results')).toContainText('<img');
-  await expect(page.locator('#engine-research-results img')).toHaveCount(0);
-  expect(researched).toEqual(state.listings[0].wineId);
-  await page.locator('#engine-dialog-close').click();
-  await expect(page.locator('.terminal-table tbody tr')).toContainText('0 confirmed merchant comps');
-  expect(JSON.parse(await readEngineRaw(page)).market).toHaveLength(0);
-});
-
 test('inventory, enrichment, filtering, explanations and source switches persist', async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await importRows(page, 'flickinger', [{ ...wine, price: 80, currency: 'USD', available_quantity: 4, external_id: 'offer-1' }, { ...wine, raw_title: 'Example Estate Reserve 2019 Magnum', bottle_ml: 1500, price: 180, currency: 'USD', available_quantity: 1, external_id: 'offer-2' }]);
-  await importRows(page, 'market-import', [{ ...wine, price: 100, currency: 'USD', merchant: 'Independent merchant', source_url: 'https://example.com/quote',merchant_country:'US',merchant_confidence:1,availability_status:'CONFIRMED_IN_STOCK',availability_verified:true,verified_at:new Date().toISOString(),verification_method:'manual_merchant_check',verification_evidence:'Synthetic browser test only' }]);
   await importRows(page, 'critic-import', [{ ...wine, critic: 'Authorized publication', score: 94, scale: 100, drink_from: 2024, drink_to: 2035 }]);
   await importRows(page, 'vintage-import', [{ publication:'Wine Advocate', source_reference:'Synthetic test chart, not factual data', region: 'Bordeaux', type: 'Red', vintage: 2019, score: 95, scale: 100 }]);
   const rows = page.locator('.terminal-table tbody tr');
   await expect(rows).toHaveCount(2);
-  const pricedRow = rows.filter({ hasText: '20.0%' });
+  const pricedRow=rows.filter({hasText:'$80.00'});
   await expect(pricedRow).toHaveCount(1);
   await pricedRow.getByRole('button', { name: 'Explain' }).click();
-  await expect(page.locator('#engine-dialog')).toContainText('Independent merchant');
+  await expect(page.locator('#engine-dialog')).toContainText('Flickinger');
   await expect(page.locator('#engine-dialog')).toContainText('Authorized publication');
-  await expect(page.locator('#engine-dialog')).toContainText('Price and inventory history');
+  await expect(page.locator('#engine-dialog')).toContainText('Flickinger price and inventory history');
   await page.locator('#engine-dialog-close').click();
-  await page.getByLabel('Minimum market discount %', { exact: true }).fill('10');
+  await page.getByLabel('Bottle ml',{exact:true}).fill('750');
   await expect(rows).toHaveCount(1);
   await expect(rows.first().locator('td').first()).toHaveText('1');
   await page.getByRole('button', { name: 'Reset filters' }).click();
   await expect(rows).toHaveCount(2);
   await page.getByRole('button', { name: 'Sources', exact: true }).click();
-  await page.locator('[data-toggle-source="market-import"]').click();
+  await page.locator('[data-toggle-source="critic-import"]').click();
   await expect(page.locator('#engine-dialog')).toContainText('Disabled');
   await page.locator('#engine-dialog-close').click();
-  await expect(rows.first()).toContainText('0 confirmed merchant comps');
+  await expect(rows.first()).toContainText('No verified score');
   await page.reload();
   await expect(rows).toHaveCount(2);
-  await expect(rows.first()).toContainText('0 confirmed merchant comps');
+  await expect(rows.first()).toContainText('No verified score');
   expect(errors).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
@@ -183,7 +141,7 @@ test('snapshots retain history and backups restore safely without changing the j
   await page.getByRole('button', { name: 'Add a wine', exact: true }).click();
   await page.getByLabel('Wine name').fill('My existing personal wine');
   await page.getByRole('button', { name: 'Save wine' }).click();
-  await page.getByRole('button', { name: 'Buying terminal', exact: true }).click();
+  await page.getByRole('button', { name: 'Quality terminal', exact: true }).click();
   await importRows(page, 'flickinger', [{ ...wine, price: 80, external_id: 'one' }]);
   await importRows(page, 'flickinger', [{ ...wine, price: 70, external_id: 'one' }]);
   const promise = page.waitForEvent('download');
@@ -209,8 +167,8 @@ test('synthetic example is isolated and preferences change ranking', async ({ pa
   await expect(page.locator('#engine-mode')).toContainText('SYNTHETIC EXAMPLE');
   await expect(page.locator('.terminal-table tbody tr')).toHaveCount(4);
   await page.getByRole('button', { name: 'Preferences', exact: true }).click();
-  for (const key of ['Value', 'Vintage', 'Window', 'Confidence']) await page.getByLabel(`${key} weight`, { exact: true }).fill('0');
-  await page.getByLabel('Quality weight', { exact: true }).fill('100');
+  for(const label of ['Regional vintage quality (%)','Critic consensus and confidence (%)'])await page.getByLabel(label,{exact:true}).fill('0');
+  await page.getByLabel('Professional critic scores (%)',{exact:true}).fill('100');
   await page.getByRole('button', { name: 'Save preferences and re-rank' }).click();
   await expect(page.locator('.terminal-table tbody tr').first()).toContainText('96.0');
   await page.getByRole('button', { name: 'Return to my inventory' }).click();
@@ -330,7 +288,7 @@ test('critic evidence, independent manual verification, conflicts and filters pe
   await importRows(page, 'flickinger', [{ ...wine, price:80, WA:'96+', VM:95 }]);
   const table=page.locator('#engine-results'); await expect(table).toContainText('95.5'); await expect(table).toContainText('awaiting independent verification');
   await page.getByRole('button',{name:'Professional critics',exact:true}).click();
-  const dialog=page.locator('#engine-dialog'); await expect(dialog).toContainText('96+'); await expect(dialog).toContainText('Retailer reported — unverified');
+  const dialog=page.locator('#engine-dialog'); await expect(dialog).toContainText('96+'); await expect(dialog).toContainText('Retailer-reported — not independently verified');
   const form=page.locator('#critic-review-form'); await form.getByLabel('Publication',{exact:true}).fill('Wine Advocate'); await form.getByLabel('Original score',{exact:true}).fill('94');
   await form.getByLabel('Source reference',{exact:true}).fill('SYNTHETIC licensed test reference');
   await form.getByRole('checkbox').check(); await form.getByRole('button',{name:'Save review and re-rank'}).click(); await expect(dialog).not.toBeVisible();
@@ -341,7 +299,7 @@ test('critic evidence, independent manual verification, conflicts and filters pe
   await dialog.getByRole('button',{name:'Close',exact:true}).click(); await page.reload();
   const saved=JSON.parse(await readEngineRaw(page)); expect(saved.reviews).toHaveLength(3); expect(saved.reviews.filter(r=>r.verified)).toHaveLength(1);
   await importRows(page,'flickinger',[{...wine,price:80,WA:'96+',VM:95}]); expect(JSON.parse(await readEngineRaw(page)).reviews).toHaveLength(3);
-  await page.getByRole('button',{name:'Explain',exact:true}).click(); await expect(dialog).toContainText('Professional critic calculation'); await expect(dialog).toContainText('critic contribution');
+  await page.getByRole('button',{name:'Explain',exact:true}).click(); await expect(dialog).toContainText('Individual critic scores'); await expect(dialog).toContainText('critic contribution');
 });
 
 test('Excel critic columns survive mapping, uncertain cells do not block inventory, and packages remain intact', async ({ page }) => {

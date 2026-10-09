@@ -75,3 +75,8 @@ test('explicit style is descriptive and leaves wine identity unchanged',()=>{
   assert.equal(canonicalGeography({...row,raw_title:'Synthetic Cabernet Sauvignon',style:'Chardonnay'}).conflict,true);
   assert.equal(canonicalGeography({raw_title:'Synthetic Pauillac Pomerol',region:'Bordeaux'}).conflict,true);
 });
+test('producer names and qualified lieux-dits do not masquerade as appellations; new Nuits locations keep bank/type scope',async()=>{
+ const {canonicalGeography}=await import('../src/engine/geography.js');
+ for(const [title,expected] of [['Marchesi di Barolo Barbaresco','Barbaresco'],['Dom. du Clos de Tart Morey St. Denis 1er Cru La Forge de Tart','Morey-Saint-Denis'],['Dom. Fourrier Gevrey Chambertin Aux Echezeaux','Gevrey-Chambertin'],['Domaine Example Fixin','Fixin'],['Domaine Example Clos des Lambrays Grand Cru','Clos des Lambrays']]){const g=canonicalGeography({raw_title:title});assert.equal(g.appellation,expected);assert.equal(g.conflict,false);}
+ const conflict=canonicalGeography({raw_title:'Synthetic Pauillac Pomerol',region:'Bordeaux'});assert.equal(conflict.conflict,true);
+});

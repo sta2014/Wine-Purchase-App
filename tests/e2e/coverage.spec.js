@@ -10,7 +10,7 @@ test('coverage distinguishes total inventory from filtered matches and exports u
  await page.getByRole('button',{name:'Data coverage',exact:true}).click();
  await expect(page.locator('#engine-dialog')).toContainText('1 of 2 available listings');
  await expect(page.locator('#engine-dialog')).toContainText('1 vintage matches among 1 listings');
- await expect(page.locator('#engine-dialog')).toContainText('Automatic price retrieval is not connected');
+ await expect(page.locator('#engine-dialog')).toContainText('Missing scores remain unassessed');
  const downloaded=page.waitForEvent('download');await page.getByRole('button',{name:'Download coverage report',exact:true}).click();
  const report=JSON.parse(await readFile(await (await downloaded).path(),'utf8'));
  expect(report.inventory).toMatchObject({availableListings:2,filteredListings:1});expect(report.unmatchedWines[0].importedRegion).toBe('Unmapped test region');expect(report.vintages.matchedAvailableListings).toBe(1);

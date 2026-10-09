@@ -9,7 +9,7 @@ Phase 2 extends the existing Vite/vanilla JavaScript terminal, shared ranking en
 | `src/engine/geography.js` | Canonical hierarchy, aliases, conservative title inference, type/style context and conflict detection |
 | `src/engine/vintages.js` | Provider registry, rating conversions, geographic matching, source revisions, composite, tiers, confidence, chart index |
 | `src/engine/ingestion.js`, `actions.js` | Provenance-bearing imports, corrections, decisions, backup validation and historical score snapshots |
-| `src/engine/ranking.js` | Independent vintage component, neutral missing-data treatment, combined filters and sorting |
+| `src/engine/ranking.js` | Independent vintage component, available-evidence reweighting, combined filters and sorting |
 | `src/vintage-ui.js`, `terminal.js` | Inventory summary, expanded evidence, manual entry, source/wine corrections, approved refresh |
 | `server/vintages.js`, `index.js`, `refresh.js` | Authenticated `/api/vintages`, category-specific provider refresh using the existing safe feed adapter |
 | `sources.js`, `server/database.js`, `client.js` | Source configuration migration, persistence and browser/server operations |
@@ -17,7 +17,7 @@ Phase 2 extends the existing Vite/vanilla JavaScript terminal, shared ranking en
 
 ## Data providers and access
 
-**No live professional vintage chart was retrieved or activated. No factual vintage ratings are bundled.** Synthetic ratings appear only in explicitly labeled tests and the existing synthetic example.
+**The 15 user-supplied Wine Spectator charts are bundled as 466 provenance-bearing assessments.** No live professional chart retrieval is active. Synthetic ratings appear only in explicitly labeled tests and the synthetic example.
 
 | Publication | Supported ingestion | Verified access finding |
 |---|---|---|
@@ -65,7 +65,7 @@ Confidence is `(0.7 + 0.09 × min(additional publications, 3)) × geography fact
 
 Vintage tiers: Exceptional ≥98, Outstanding ≥95, Excellent ≥92, Very Good ≥88, Good ≥83, Average ≥75, Weak below 75.
 
-The separate vintage ranking component interpolates between score→component anchors `0→20, 75→35, 83→45, 88→55, 92→65, 95→80, 98→95, 100→100`. This emphasizes exceptional vintages while bounding a weak-vintage penalty. Its existing default weight stays 10 versus critic quality 35; all weights remain independently configurable in Preferences. Missing/NV/MV vintage evidence uses a disclosed neutral component of 50 with **zero vintage evidence coverage**. The actual vintage composite remains null. At default weights, neutral vintage contributes 5 opportunity points; this replaces the previous missing-vintage zero contribution. A strong individual critic review remains the stronger signal. Historical opportunity snapshots retain their original algorithm versions; new snapshots use version 3 with vintage evidence/contribution and geography.
+The three-factor quality ranking uses professional critic scores (60%), the normalized regional vintage composite (25%), and professional critic consensus/confidence (15%). Existing controls adjust these weights. A missing, NV or MV vintage has no numerical component; available factors are reweighted and reduced coverage is disclosed. No invented neutral score or asking-price contribution is used. New quality histories use algorithm version 6; old scoring data is archived before migration. See [QUALITY_RANKING.md](QUALITY_RANKING.md).
 
 The inventory shows vintage score/tier/confidence, assessed region and a **Vintage Intelligence** button. Details show the hierarchy/fallback, original/normalized ratings, provenance, match decisions, provider states, context and contribution. Filters include minimum vintage score, tier (including Exceptional or Outstanding), minimum confidence and canonical appellation, combinable with critic filters. Sort options cover vintage score, tier and contribution. Ranking still spans the full filtered inventory while displaying 100 offers per page.
 
@@ -81,9 +81,9 @@ The hierarchy is a curated starting set, not every world appellation or vineyard
 
 Run `WINE_TEST_WORKBOOK=/local/private/export.xlsx npm test` and the same environment variable with `npm run test:e2e`. The private workbook is never committed. The optional reference test uses actual imported identities with a clearly synthetic, temporary routing assessment; it does not turn test ratings into user data.
 
-Coverage includes all requested major regions, same-year/different-region scores, exact/fallback hierarchy, color/style/vineyard matching, wrong region/year rejection, NV/MV/missing neutrality, professional provenance, conversion rules, confidence/disagreement, source/wine corrections, update/duplicate history, provider failure/cache/force refresh, SQLite, browser persistence, critic independence, filtering/sorting/explanations and the full 8,648-offer / 4,346-review workbook. Existing journal/import/critic/server tests remain included. Production and Pages builds and JavaScript syntax validation are required; the repository has no separate configured lint/type-check script.
+Coverage includes all requested major regions, same-year/different-region scores, exact/fallback hierarchy, color/style/vineyard matching, wrong region/year rejection, NV/MV/missing exclusions, professional provenance, conversion rules, confidence/disagreement, source/wine corrections, update/duplicate history, provider failure/cache/force refresh, SQLite, browser persistence, critic independence, filtering/sorting/explanations and the full 8,648-offer / 4,346-review workbook. Existing journal/import/critic/server tests remain included. The production build and JavaScript syntax validation are required; Pages output is prepared only after deployment approval; the repository has no separate configured lint/type-check script.
 
-Verified on 2026-10-07: **120 engine/unit/integration tests passed with no skips**, including the private reference workbook and large-chart indexing; **58 desktop/mobile browser tests passed**, including the six private-workbook/vintage workflows against the Pages base path. Both production builds, JavaScript syntax checks and patch whitespace checks passed. The actual workbook imported in approximately 3–4 seconds in browser tests and preserved all 8,648 offers and 4,346 retailer-reported critic facts across reload/reimport. Local terminal and detail layouts were visually inspected using clearly labeled synthetic examples. Source network findings above establish access limitations, not successful live vintage-chart retrieval.
+Current inventory coverage and reference requests are recorded in [QUALITY_COVERAGE_REPORT.md](QUALITY_COVERAGE_REPORT.md). Test results from earlier releases are not evidence that this unpublished revision has been deployed.
 
 ## Private chart packs
 

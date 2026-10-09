@@ -7,16 +7,25 @@ const rows = [
   ['medoc','Médoc','left-bank','subregion',[]], ['haut-medoc','Haut-Médoc','medoc','appellation',[],'Red'], ['pauillac','Pauillac','medoc','appellation',[],'Red'], ['margaux','Margaux','medoc','appellation',[],'Red'], ['saint-julien','Saint-Julien','medoc','appellation',[],'Red'], ['saint-estephe','Saint-Estèphe','medoc','appellation',[],'Red'],
   ['graves','Graves','left-bank','subregion',[]], ['pessac','Pessac-Léognan','graves','appellation',[]],
   ['right-bank','Right Bank Bordeaux','bordeaux','subregion',['Right Bank','Bordeaux Right Bank','Libournais']], ['saint-emilion','Saint-Émilion','right-bank','appellation',[],'Red'], ['pomerol','Pomerol','right-bank','appellation',[],'Red'],
+  ['castillon','Castillon Côtes de Bordeaux','right-bank','appellation',['Côtes de Castillon'],'Red'],
+  ['francs','Francs Côtes de Bordeaux','right-bank','appellation',[],'Red'],
   ['sauternes','Sauternes','bordeaux','appellation',[],'Sweet'], ['barsac','Barsac','bordeaux','appellation',[],'Sweet'],
   ['burgundy','Burgundy','france','region',['Bourgogne']], ['nuits','Côte de Nuits','burgundy','subregion',[]], ['cote-beaune','Côte de Beaune','burgundy','subregion',[]],
   ['chablis','Chablis','burgundy','appellation',[],'White'], ['petit-chablis','Petit Chablis','burgundy','appellation',[],'White'],
   ...['Vosne-Romanée','Gevrey-Chambertin','Chambolle-Musigny','Nuits-Saint-Georges','Morey-Saint-Denis','Vougeot','Flagey-Échezeaux'].map(n=>[geoKey(n).replaceAll(' ','-'),n,'nuits','appellation',[], n==='Vougeot' ? null : 'Red']),
   ...['Meursault','Puligny-Montrachet','Chassagne-Montrachet','Beaune','Pommard','Volnay','Aloxe-Corton','Savigny-lès-Beaune','Saint-Aubin'].map(n=>[geoKey(n).replaceAll(' ','-'),n,'cote-beaune','appellation',[], ['Meursault','Puligny-Montrachet'].includes(n)?'White':['Pommard','Volnay'].includes(n)?'Red':null]),
+  ...['Fixin','Marsannay','Côtes de Nuits Villages'].map(n=>[geoKey(n).replaceAll(' ','-'),n,'nuits','appellation',[], 'Red']),
+  ['corton','Corton','cote-beaune','appellation',[],'Red'],
+  ['grande-rue','La Grande Rue','nuits','appellation',[],'Red'],
+  ['lambrays','Clos des Lambrays','nuits','appellation',[],'Red'],
+  ...['Santenay','Auxey-Duresses','Monthélie','Chorey-lès-Beaune','Ladoix'].map(n=>[geoKey(n).replaceAll(' ','-'),n,'cote-beaune','appellation',[]]),
   ['maconnais','Mâconnais','burgundy','subregion',[]], ['pouilly-fuisse','Pouilly-Fuissé','maconnais','appellation',[],'White'],
   ...['Montrachet','Chevalier-Montrachet','Bâtard-Montrachet','Bienvenues-Bâtard-Montrachet','Corton-Charlemagne'].map(n=>[geoKey(n).replaceAll(' ','-'),n,'cote-beaune','appellation',[],'White']),
   ...['Chambertin','Griotte-Chambertin','Clos de Vougeot','Échezeaux','Grands-Échezeaux','Richebourg','Romanée-Conti','Romanée-Saint-Vivant','Clos de la Roche','Clos Saint-Denis','Clos de Tart','Musigny','Bonnes-Mares'].map(n=>[geoKey(n).replaceAll(' ','-'),n,'nuits','appellation',n==='Clos de Tart'?['Clos du Tart']:[],'Red']),
   ['rhone','Rhône','france','region',['Rhone Valley']], ['north-rhone','Northern Rhône','rhone','subregion',['North Rhone']], ['south-rhone','Southern Rhône','rhone','subregion',['South Rhone']],
   ['cote-rotie','Côte-Rôtie','north-rhone','appellation',[],'Red'], ['hermitage','Hermitage','north-rhone','appellation',['Ermitage']], ['crozes','Crozes-Hermitage','north-rhone','appellation',[]], ['saint-joseph','Saint-Joseph','north-rhone','appellation',[]], ['cornas','Cornas','north-rhone','appellation',[],'Red'], ['condrieu','Condrieu','north-rhone','appellation',[],'White'],
+  ['saint-peray','Saint-Péray','north-rhone','appellation',[],'White'],
+  ['rhone-villages','Côtes du Rhône Villages','south-rhone','appellation',[],'Red'],
   ['cdp','Châteauneuf-du-Pape','south-rhone','appellation',['CdP']], ['gigondas','Gigondas','south-rhone','appellation',[],'Red'], ['vacqueyras','Vacqueyras','south-rhone','appellation',[]], ['cotes-rhone','Côtes du Rhône','rhone','appellation',[]],
   ['champagne','Champagne','france','region',[],'Sparkling'], ['loire','Loire','france','region',['Loire Valley']], ['alsace','Alsace','france','region',[]], ['jura','Jura','france','region',[]],
   ['piedmont','Piedmont','italy','region',['Piemonte']], ['langhe','Langhe','piedmont','subregion',[]], ['barolo','Barolo','langhe','appellation',[],'Red'], ['barbaresco','Barbaresco','langhe','appellation',[],'Red'],
@@ -47,7 +56,8 @@ export function canonicalGeography(input, { inferTitle = true } = {}) {
   const explicit=['country','region','subregion','appellation'].map(k=>({field:k,node:geographyNode(raw[k])})).filter(x=>x.node);
   let candidates=explicit.map(x=>x.node), warnings=[];
   if (inferTitle) {
-    const text=input.rawTitle || input.raw_title || '';
+    // Producer names and qualified lieu-dits can contain a different appellation name.
+    const text=(input.rawTitle || input.raw_title || '').replace(/^\s*(?:Dom(?:aine)?\.?\s+du\s+Clos\s+de\s+Tart|Marchesi\s+di\s+Barolo)\b/i,'').replace(/\bAux\s+[ÉE]ch[ée]zeaux\b/gi,'');
     const titleKey=` ${geoKey(text)} `;
     const inferred=titleAliases.filter(({phrases})=>phrases.some(p=>titleKey.includes(` ${p} `))).map(({id})=>GEOGRAPHY[id]);
     // A longer appellation wins over a contained name: Crozes-Hermitage is not Hermitage.

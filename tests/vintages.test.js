@@ -120,10 +120,10 @@ test('country fallback is low confidence; Champagne excludes generic country dat
   const s=ingest(inventory(),[chart({country:'France',region:'',score:92})]);assert.equal(analysis(s).vintage,92);assert.equal(analysis(s).vintageIntelligence.confidenceLabel,'Low');
   const champagne=ingest(inventory([wine({region:'Champagne',type:'Sparkling'})]),[chart({country:'France',region:'',type:'All'})]);assert.equal(analysis(champagne).vintage,null);
 });
-test('NV, MV and missing evidence use the same neutral contribution with no factual score',()=>{
+test('NV, MV and missing evidence omit the component with no factual score',()=>{
   for(const vintage of ['NV','MV',2019]) {
     const s=inventory([wine({region:'Champagne',type:'Sparkling',vintage})]),a=analysis(s);
-    assert.equal(a.vintage,null);assert.equal(a.breakdown.find(b=>b.key==='vintage').contribution,5);assert.equal(a.breakdown.find(b=>b.key==='vintage').neutral,true);assert.equal(a.coverage,0);
+    assert.equal(a.vintage,null);assert.equal(a.breakdown.find(b=>b.key==='vintage').contribution,0);assert.equal(a.breakdown.find(b=>b.key==='vintage').value,null);assert.equal(a.coverage,0);
     assert.equal(rankInventory(s,{minVintageScore:1},now).length,0);
   }
 });
@@ -134,7 +134,7 @@ test('critic and vintage scores and contributions are separate; filters combine 
   assert.notEqual(a.breakdown.find(b=>b.key==='quality').contribution,a.breakdown.find(b=>b.key==='vintage').contribution);
   const filtered=rankInventory(s,{minCritic:96,minVintageScore:95,vintageTier:'Exceptional|Outstanding'},now);assert.equal(filtered.length,1);assert.equal(filtered[0].rank,1);assert.equal(filtered[0].wine.appellation,'Barolo');
   assert.equal(rankInventory(s,{sort:'vintage'},now)[0].wine.appellation,'Barolo');
-  assert.ok(s.scoreHistory.at(-1).vintageEvidence.length);assert.equal(s.scoreHistory.at(-1).algorithmVersion,4);
+  assert.ok(s.scoreHistory.at(-1).vintageEvidence.length);assert.equal(s.scoreHistory.at(-1).algorithmVersion,6);
 });
 test('duplicate retrieval retains IDs/decisions and changes retain previous ratings',()=>{
   let s=ingest(inventory(),[chart({region:'Pauillac'})]);const id=s.vintages[0].id,wineId=s.listings[0].wineId;
@@ -157,5 +157,5 @@ test('approved vintage provider fetches once per TTL, forced refresh deduplicate
   assert.equal((await service.lookup(id)).assessment.score,99);await service.lookup(id);assert.equal(calls,1);
   await service.lookup(id,true);assert.equal(calls,2);assert.equal(db.load().vintages.length,1);
   fail=true;clock=new Date(+now+31*86400000);await refresh.run();assert.equal(db.load().sources.find(p=>p.id==='vintage-import').status,'Error');assert.equal(assessVintage(db.load(),db.load().wines[id]).score,99);
-  assert.equal(db.load().market.length,0);db.close();
+  assert.equal('market' in db.load(),false);db.close();
 });

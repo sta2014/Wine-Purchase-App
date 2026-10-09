@@ -1,5 +1,3 @@
-import {MarketResearchService} from './market-jobs.js';
-import { MarketLookupService } from './market.js';
 import { CriticLookupService } from './critics.js';
 import { VintageLookupService } from './vintages.js';
 import { createServer } from 'node:http';
@@ -12,11 +10,9 @@ import { RefreshService } from './refresh.js';
 import { applyAction } from '../src/engine/actions.js';
 import { sourceStatus } from '../src/engine/sources.js';
 import { credentialAvailable } from './adapters.js';
-import { WebResearchService } from './research.js';
 
-export function createEngineServer({ database = new EngineDatabase(process.env.WINE_DB_FILE || '.local/wine-engine.sqlite'), token = process.env.ENGINE_ACCESS_TOKEN || '', origins = (process.env.WINE_ALLOWED_ORIGINS || '').split(',').filter(Boolean), refresh = new RefreshService(database), research = new WebResearchService(), marketLookup = new MarketLookupService(database,refresh), marketResearch = new MarketResearchService(database), staticDir = 'dist' } = {}) {
+export function createEngineServer({ database = new EngineDatabase(process.env.WINE_DB_FILE || '.local/wine-engine.sqlite'), token = process.env.ENGINE_ACCESS_TOKEN || '', origins = (process.env.WINE_ALLOWED_ORIGINS || '').split(',').filter(Boolean), refresh = new RefreshService(database), staticDir = 'dist' } = {}) {
   const critics = new CriticLookupService(database, refresh);
-  const market = marketLookup;
   const vintages = new VintageLookupService(database, refresh);
   const server = createServer(async (req, res) => {
     const origin = req.headers.origin;
@@ -47,7 +43,6 @@ export function createEngineServer({ database = new EngineDatabase(process.env.W
         if (a.length !== b.length || !timingSafeEqual(a, b)) return send(401, { error: 'Engine authentication required.' });
       }
       if (req.method === 'GET' && url.pathname === '/api/health') return send(200, { ok: true, scheduler: true, persistent: true });
-      if(req.method==='GET' && url.pathname==='/api/market-research') return send(200,marketResearch.summary());
       if (req.method === 'GET' && url.pathname === '/api/engine') {
         const state = database.load();
         for (const source of state.sources) source.status = sourceStatus(source, credentialAvailable(source));
@@ -59,17 +54,7 @@ export function createEngineServer({ database = new EngineDatabase(process.env.W
       for await (const chunk of req) { bytes += chunk.length; if (bytes > 10 * 1024 * 1024) return send(413, { error: 'Request exceeds 10 MB.' }); chunks.push(chunk); }
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
       if (url.pathname === '/api/critics') return send(200, await critics.lookup(body.wineId, body.force === true));
-      if(url.pathname==='/api/market-research/audit')return send(200,await marketResearch.audit(body.sourceId));
-      if(url.pathname==='/api/market-research/configure')return send(200,marketResearch.configure(body));
-      if(url.pathname==='/api/market-research/cancel')return send(200,marketResearch.cancel(body.jobId));
-      if(url.pathname==='/api/market-research/queue' || url.pathname==='/api/market') {const result=marketResearch.enqueue(body);marketResearch.tick().catch(()=>{});return send(200,result);}
       if (url.pathname === '/api/vintages') return send(200, await vintages.lookup(body.wineId, body.force === true));
-      if (url.pathname === '/api/research') {
-        const state = database.load(), wine = state.wines[body.wineId];
-        if (!wine) return send(404, { error: 'Wine not found. Import inventory first.' });
-        if (!state.listings.some(l => l.wineId === wine.id && state.sources.find(s => s.id === l.sourceId)?.enabled)) return send(400, { error: 'Research requires inventory from an enabled source.' });
-        return send(200, await research.search(wine));
-      }
       if (url.pathname === '/api/refresh') return send(200, await refresh.run(body.force === true));
       if (url.pathname === '/api/action') {
         const current = database.load();
@@ -78,23 +63,20 @@ export function createEngineServer({ database = new EngineDatabase(process.env.W
         database.save(state);
         if (body.action?.type === 'import' && state.sources.find(s=>s.id===body.action.sourceId)?.category==='inventory') {
           await critics.lookupMany(state.listings.filter(l=>l.isAvailable && l.sourceId===body.action.sourceId).map(l=>l.wineId));
-          let outcome;try {const summary=marketResearch.summary(),count=Math.min(summary.activeSources,5);const capacity=Math.floor((20000-summary.jobs.length)/Math.max(1,count));outcome=capacity>0?marketResearch.enqueue({maxWines:Math.min(10000,capacity),maxSources:5}):{queued:0,message:'Search queue retention limit reached. Existing inventory was saved.'};}
-          catch(error){outcome={queued:0,message:error.message};}
-          const latest=database.load(),run=latest.runs.filter(r=>r.category==='inventory'&&r.sourceId===body.action.sourceId).at(-1);if(run)run.marketResearch={queued:outcome.queued,message:outcome.message || 'Background price research queued; results appear as verified offers arrive.'};latest.revision++;database.save(latest);
+
         }
         return send(200, database.load());
       }
       return send(404, { error: 'API route not found.' });
     } catch (error) { return send(400, { error: error.message }); }
   });
-  server.on('close',()=>marketResearch.stop());
-  return { server, database, refresh, marketResearch };
+  return { server, database, refresh };
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const host = process.env.WINE_API_HOST || '127.0.0.1';
   if (!['127.0.0.1', 'localhost', '::1'].includes(host) && !process.env.ENGINE_ACCESS_TOKEN) throw new Error('ENGINE_ACCESS_TOKEN is required before binding the engine to a public interface.');
   const app = createEngineServer();
-  app.server.listen(Number(process.env.WINE_API_PORT || 5180), host, () => { console.log('Wine intelligence service started; SQLite persistence and scheduled refresh enabled.'); app.refresh.start(); app.marketResearch.start(); app.refresh.run().catch(error => console.error('Initial refresh failed:', error.message)); });
-  const shutdown = () => { app.refresh.stop(); app.marketResearch.stop(); app.server.close(() => { app.database.close(); process.exit(0); }); };
+  app.server.listen(Number(process.env.WINE_API_PORT || 5180), host, () => { console.log('Wine intelligence service started; SQLite persistence and scheduled refresh enabled.'); app.refresh.start(); app.refresh.run().catch(error => console.error('Initial refresh failed:', error.message)); });
+  const shutdown = () => { app.refresh.stop(); app.server.close(() => { app.database.close(); process.exit(0); }); };
   process.on('SIGTERM', shutdown); process.on('SIGINT', shutdown);
 }

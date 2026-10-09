@@ -1,126 +1,19 @@
-# Wine purchasing intelligence
+# Wine quality intelligence
 
-[Open the application](https://sta2014.github.io/Wine-Purchase-App/).
+The existing desktop website ranks the Flickinger wines you can buy using professional critic scores (60%), regional vintage quality (25%), and critic consensus/confidence (15%). Adjust all three percentages in **Preferences**; they must total 100%. Existing imports, package accounting, sources, vintage charts, personal journal and backups remain.
 
-The existing Wine Journal now includes a buying terminal. Authorized retailer inventory defines what you can buy; matching market quotes, professional reviews, regional vintage assessments, and drinking windows supply evidence for personalized rankings. Your original wishlist, purchases, notes, and journal backups remain under **Personal journal**.
+External market research and CellarTracker have been removed. Flickinger lot price, physical-bottle price, currency, volume and packaging stay visible and filterable; they never contribute quality points. No paid service or account is needed for imports and saved data.
 
-## Start using it
+Import your Excel workbook, then use **Vintage charts → Load Wine Spectator charts** for the 15 supplied charts. Retailer-reported scores are labeled unverified. **Professional critics** preserves individual publications, ranges, stages and references, allows identity corrections and checked review entry, and offers original-publication search links. Licensed/reference CSV, Excel and JSON imports support a publication/score column or wide WA/VN/JS/etc. columns. Automatic retrieval runs only for explicitly approved JSON feeds on the optional existing Node backend; no publisher is connected by default.
 
-1. Choose **Explore synthetic example** to try filtering, preferences, and **Explain**. Its wines, merchants, prices, and reviews are fictitious, labeled, and kept out of your real data.
-2. Choose **Import data** to load an authorized inventory Excel (.xlsx), CSV, or JSON export into Flickinger Wines. Download a template from the dialog. Excel uploads let you choose a worksheet, confirm the header row, preview rows, and match export columns to wine fields before saving. Older .xls files need Save As .xlsx or CSV in Excel. Supply producer, cuvée, vintage, bottle volume, package count, packaging, currency, price, and quantity whenever known.
-3. Import permitted market observations, critic reviews, community reviews, and curated vintage assessments through their corresponding sources. Each observation retains provenance, timestamps, confidence, and warnings.
-4. Set filters and buying preferences. Rankings update within the filtered inventory. **Explain** shows contributions, accepted evidence, excluded comparisons, uncertainty, and history.
-5. Use **Sources** to enable, disable, or configure sources. **Review matches** handles questionable cuvée matches; hard identity and package conflicts cannot be overridden.
-6. Download regular **engine backups**. Browser engine backups up to 100 MB can be restored; source imports retain their 10 MB limit. The journal has a separate **Backups** control and original backup format.
+**Data coverage** reports unique wine/vintage identities and missing evidence. Filters combine country, region, subregion, appellation, style, producer, vintage, type, critic scores, vintage scores, consensus, overall score, confidence, asking prices, physical bottles and format. CSV/Excel shortlists support top 15, 25, 50 or a custom size, deduplicate alternate packages, and include selected weights, references and missing-data flags.
 
-GitHub Pages runs in **browser/manual mode**, with imports and the full analysis pipeline. Engine data lives in the `wine-intelligence` IndexedDB database (`engine` store, `wine-intelligence.v1` record), avoiding localStorage’s small quota. Existing localStorage engine data migrates automatically; the old engine value is removed only after the database transaction commits. Journal storage stays unchanged. Clearing site data can erase browser records. Pages cannot run unattended jobs. Connecting an engine switches to its server dataset and preserves browser data separately; it never silently uploads or merges anything. Engine backup restoration replaces the dataset after confirmation; automated-source approvals must be renewed afterward.
+Read [QUALITY_RANKING.md](QUALITY_RANKING.md) for methodology and migration safeguards. Private workbook audits remain under ignored `.local/quality-audit/`; no inventory or synthetic score is published as real data.
 
-**No live Flickinger inventory, licensed critic data, Wine-Searcher access, or community subscription is currently connected.** Obtain an authorized export or approved feed for real data. Named sites are configuration entries, not claims of working access. Paywalls, logins, CAPTCHA, access restrictions, and anti-bot controls are never bypassed.
+Browser data uses IndexedDB (`wine-intelligence` / `engine` / `wine-intelligence.v1`). A pre-refactor snapshot is preserved as `wine-intelligence.before-quality.v1` before existing data migrates. Keep downloadable engine backups as well. Personal journal storage/backup format remains unchanged. Optional SQLite migration snapshots the database before removing dedicated pricing tables and preserves critic, vintage and inventory observations. Do not run migration against production until approval.
 
-Retailer imports treat `6x750ml` as one six-bottle package and `3x750ml` as one three-bottle package. `1.5L` is one magnum (two 750ml equivalents); `3.0L` is one double magnum (four equivalents). The terminal separates package prices, physical bottle counts, and equivalent volume. Excel defaults do not override a detected format. Quantities count available packages.
+## Development
 
-## Original personal journal
+Node.js 24.5+ is required for SQLite. Run `npm ci`, `npm run build`, `npm test`, and `npm run test:e2e` (Chromium required). `npm run dev` starts Vite; `npm run engine` starts the optional existing backend. Set `WINE_DB_FILE` to a temporary database for testing migrations; do not use the personal database for fixtures. Approved feed credentials belong in server environment settings, with exact host bindings, never in VITE_* variables.
 
-Add wines to your wishlist or purchased wines, with price/currency, quantity, vintage, type, region, notes, and purchase date. Mark as purchased, edit, confirm removal, search, filter, and sort as before. Backups merge by record ID without overwriting existing edits. Storage remains `wine-journal.v1`; backups remain `{ "version": 1, "wines": [...] }`. Records stay on that browser/device/site. Bottle counts represent purchases, not remaining cellar inventory.
-
-## Development and validation
-
-Requires **Node.js 24.5+** (validated on 24.19.0), npm, and Chromium for browser tests. The server uses built-in SQLite.
-
-```sh
-npm ci --cache /tmp/wine-npm-cache --no-audit --no-fund
-npm run build
-npm run engine
-```
-
-The engine serves the production frontend and `/api` on port 5180, bound to loopback by default. For development, keep it running and use a second terminal:
-
-```sh
-npm run dev -- --port 5173 --strictPort
-```
-
-Vite proxies `/api` to the local engine. The browser automatically connects when served at `/` with an available API. On GitHub Pages, choose **Connect engine**, enter your HTTPS engine URL ending in `/api`, and its access token. The token stays in memory; reconnect after reloading. Your journal stays browser-local even when connected.
-
-```sh
-npm test
-npm run build
-npm run test:e2e
-```
-
-Node tests cover identity, formats, confidence, atomic imports, history, comparisons, ranking, SQLite persistence, refresh caching, permissions, robots, and HTTP authentication. Browser tests cover the journal and manual terminal pipeline on desktop and phone. Tests use production preview port 4173 and `/usr/bin/chromium`, or `CHROMIUM_PATH`. API probing may log connection refusal when the optional engine is absent; manual mode continues normally. Keep port 4173 free for the tests.
-
-Use the existing `/workspace/Wine-Purchase-App` checkout in cloud tasks; tasks are already isolated. Do not create a worktree unless requested. Processes must restart in new tasks. Reusable cloud setup instructions are saved separately from website publication.
-
-## Server hosting and automatic refresh
-
-An **always-running server with persistent storage and HTTPS** is required for unattended refresh. GitHub Pages cannot host this service. `.env.example` documents bindings; never put secrets in `VITE_*`, source URLs, committed files, or browser bundles.
-
-The default database is `.local/wine-engine.sqlite`. Back up with SQLite's backup mechanism or export an engine backup; copying a live WAL database file alone can miss observations. Schema version 1 initializes automatically. Preserve the database across deployments. This is one personal dataset, not a multiuser service.
-
-Use the included Dockerfile/Compose configuration, or supervise `node server/index.js`. Build the frontend before building the runtime image, which needs no npm dependencies. Docker uses an unprivileged user and persistent `/data` volume. Compose exposes only a loopback port, requires `ENGINE_ACCESS_TOKEN`, and restarts after failures. Put a TLS reverse proxy in front. Store credentials securely on your host and set exact `WINE_ALLOWED_ORIGINS` for remote connections.
-
-```sh
-npm ci --no-audit --no-fund
-npm run build
-docker compose up --build -d
-```
-
-For an approved authenticated feed, set its credential binding name in Sources and the corresponding secret on the server. Bind the name to the approved hostname in `WINE_SOURCE_CREDENTIAL_HOSTS`; example non-secret metadata:
-
-```json
-{"FLICKINGER_FEED_TOKEN":["approved-feed-host.example"]}
-```
-
-The scheduler checks due sources every minute. Inventory/market default to **6 hours**; critic/community/vintage default to **720 hours**. Intervals are configurable. ETag/Last-Modified conditional requests avoid repeat payloads; 304 responses retain original observation timestamps without duplicating history. Errors preserve evidence and back off exponentially, up to 24 hours. Disabled/manual/unapproved sources never fetch. See [DATA_CONTRACTS.md](DATA_CONTRACTS.md).
-
-## Website publication
-
-GitHub Pages is enabled for `main`, folder `/docs`. Rebuild and commit generated assets when frontend source changes:
-
-```sh
-npm run build:pages
-npm run preview:pages -- --port 4174 --strictPort
-```
-
-The Pages build uses `/Wine-Purchase-App/`, includes local fonts and import templates, and contains no visitor records or credentials. Cloud environment publication is separate from website publication. Review screenshots are in `screenshots/`; terminal examples are labeled synthetic.
-
-## Architecture and limits
-
-The original Vite/browser JavaScript journal was preserved. `src/engine/` handles identity, sources, ingestion, ranking, and actions; `src/terminal.js` adds the UI; `server/` provides approved-feed adapters, refresh, authenticated APIs, and SQLite. The audit and assumptions are in [IMPLEMENTATION.md](IMPLEMENTATION.md).
-
-Aliases and appellations start with a conservative curated set. Unknown producers need explicit producer/cuvée fields; fuzzy matches require review. No verified FX conversion, auction-fee model, HTML scraper, investment-return prediction, or purchased-wine synchronization is implemented. At very large inventories, replace full-state APIs, browser analysis, and transactional SQLite state replacement with indexed queries and incremental writes. Browser storage has capacity limits; server history is preferable for sustained use.
-
-## Web price research
-
-Each inventory row has **Research prices**. Google/Bing links search the producer, cuvée, vintage, bottle volume, package count and wooden-case status, excluding Wine-Searcher. These links work on GitHub Pages without a subscription and open an ordinary search in another tab.
-
-For results inside the app, the connected backend implements the documented [Brave Search web API](https://api.search.brave.com/app/documentation/web-search/get-started). Set `BRAVE_SEARCH_API_KEY` securely on the server and permit HTTPS to `api.search.brave.com`; Compose forwards the optional binding. Review the provider's current plan, terms and permitted caching before subscribing. No account is purchased or provisioned by this application. The connector has not been tested against a live account because no key is configured. ChatGPT subscriptions do not supply an app with web-search API credentials.
-
-Research is user-triggered, limited to one new query per three seconds, deduplicated, capped at ten returned links, and cached in process memory for six hours (original retrieval time retained). It neither follows retailer pages nor circumvents their restrictions. Results preserve URL, hostname, provider and retrieval time. Titles/snippets are explicitly unverified; they cannot affect rankings, market observations, or history. Confirm exact identity/format, current availability, price, currency, taxes and shipping from a permitted source, then use **Approved market price imports** to record verified observations. A permitted, explicitly configured merchant-page connector now reads schema.org Product/Offer data; it never follows arbitrary search results. No live merchant endpoint has been verified. Verified manual merchant offers can be recorded in Market Intelligence. Search discovery alone does not establish a buying or executable arbitrage opportunity.
-
-## Professional critic scores
-
-Reimport your retailer export to retain labeled critic columns, then open **Professional critics** on a wine. Scores are marked retailer-reported until independently verified. Publication filters, verified-review filtering, manual evidence, persistent match/identity corrections, composite quality and decomposed ranking are available. Automatic external verification still requires a real approved feed and connected engine; no commercial publication is live by default. See [CRITIC_SCORING.md](CRITIC_SCORING.md) for providers, methodology, configuration and limitations.
-
-## Vintage Intelligence
-
-Open **Vintage Intelligence** on a wine to inspect regional/year/type context, source ratings and internal conversions, geography/fallback, confidence and its separate ranking contribution. Add a reference-bearing professional assessment there or import the extended vintage template. Appellation/tier/confidence filters combine with critic filters. Missing, NV and MV vintage data use neutral context rather than a zero/bad-vintage score. No live chart provider is enabled and no factual vintage ratings are bundled; documented imports or an approved feed are still needed. See [VINTAGE_INTELLIGENCE.md](VINTAGE_INTELLIGENCE.md) for hierarchy, providers, methodology, persistence, configuration and validation.
-
-## Inventory price import diagnostics
-
-Large inventory imports run normalization in a browser worker and display 100 offers per page. Filtering and ranks cover the entire imported inventory, not just the visible page. Analyses are reused while filtering and refreshed after data changes or one minute. The Flickinger layout `Region Name / Vintage / Size / [blank wine-name header] / Price (USD) / Scores` is recognized automatically, with package-total USD pricing. Quantity stays unknown when the export supplies none. Exact inventory identity allows the retailer's own scores to be used as unverified reported evidence even when producer parsing is incomplete; external comparisons retain conservative matching requirements.
-
-To verify the full private reference export locally, set `WINE_TEST_WORKBOOK` to its local `.xlsx` path and run `npm run test:e2e -- tests/e2e/reference-workbook.spec.js`. The test checks 8,648 offers, 4,346 retained reported reviews, pagination, filters, reloads, stable offer IDs and repeat-import history. Set `WINE_TEST_URL=http://127.0.0.1:4174/Wine-Purchase-App/` to test a running Pages preview. The workbook and derived private inventory must never be committed or included in the public build.
-
-The website defaults to setting aside inventory rows with missing, zero, negative, nonnumeric or out-of-range prices; valid rows and their critic scores still import. **Review excluded price rows** shows the actual imported value and physical Excel worksheet row and downloads every original excluded row. `$400.00` is a valid price. Reports remain in engine backups and survive reload. Imports with excluded rows automatically become partial snapshots, preserving old stock/history. Correct the original cells or mappings and reimport; prices are never invented or converted to zero. Uncheck the option to enforce a strict atomic import. Approved automated feeds remain strict unless their dataset explicitly includes `skipInvalidPrices: true`; market/review/vintage imports are unaffected. An entirely unusable-price file or an unrelated validation error still fails without changing saved inventory.
-
-
-## Current market pricing (Phase 3)
-
-Open **Market Intelligence** beside a wine to inspect the current median, lowest offer, percentage/dollar discounts, confidence, source stock evidence, exclusions and offer history. Add a merchant offer only after checking the actual listing. Market/critic/vintage filters combine and ranks update within the selected inventory. Default comparisons use confirmed current US stock in USD, the same physical bottle volume and packaging; loose pack counts normalize per physical bottle. Missing values stay unknown.
-
-**No external live pricing provider is connected or verified yet.** Authorized manual market imports/entries work. Approved merchant/aggregator JSON feeds and permitted merchant JSON-LD product pages have tested connectors, but no real feed endpoint/account is available. Merchant access-policy checks were blocked by the current environment's network allowlist. Search snippets never become verified prices. Multiple daily automatic refresh additionally needs a running hosted engine; GitHub Pages cannot run background jobs. See [MARKET_INTELLIGENCE.md](MARKET_INTELLIGENCE.md) for rules, provider status, configuration, tests and remaining work. Vintage charts remain the next data-collection task in [VINTAGE_DATA_NEEDED.md](VINTAGE_DATA_NEEDED.md).
-
-Public U.S. retailer pricing, source coverage, queue/scheduling, historical observations and access limitations are documented in [MARKET_RESEARCH.md](MARKET_RESEARCH.md). Development and browser testing are desktop-only.
-
-Inventory uploads to a connected pricing service now automatically queue background retailer research. See [PRICING_SERVICE_SETUP.md](PRICING_SERVICE_SETUP.md) for the free Windows desktop package, and [VINTAGE_CHARTS_NEXT.md](VINTAGE_CHARTS_NEXT.md) for additional chart coverage needed. Updated Flickinger exports support Color / Type codes R/W/S and refresh descriptive metadata while preserving saved chart history.
+`npm run build:pages` writes the GitHub Pages artifact to `docs/`. Publish changes only with user approval. This release includes the three-factor quality model and the column G critic importer. No separate Windows application, mobile application, Cloudflare Worker, price scheduler or external pricing queue is part of this version.
